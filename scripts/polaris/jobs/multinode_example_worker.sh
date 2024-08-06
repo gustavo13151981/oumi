@@ -53,9 +53,16 @@ if ! (echo "${ALLOWED_TRAINING_MODES[@]}" | grep -q -w "${TRAINING_MODE}"); then
     helpFunction
 fi
 
+if test -d ./my_local_dataset/ ; then
+   echo "Local dataset directory already exists!"
+else
+   cp -R "/eagle/community_ai/datasets/fineweb-edu/sample-10BT" "./my_local_dataset/"
+fi
+ls -l ./my_local_dataset/
+
 # Local copy of "HuggingFaceFW/fineweb-edu" dataset stored on Polaris.
 TRAIN_DATASETS="data.train.datasets=
-- dataset_name: \"/eagle/community_ai/datasets/fineweb-edu/sample-10BT\"
+- dataset_name: \"./my_local_dataset\"
   subset: \"default\"
   split: \"train\"
 "
