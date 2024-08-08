@@ -7,8 +7,6 @@ POLARIS_GPUS_PER_NODE=4
 export CUDA_VISIBLE_DEVICES=3,2,1,0
 LOG_PREFIX="Node: ${POLARIS_NODE_RANK}:"
 
-# Reversing GPUs order to match Polaris CPU affinities
-export CUDA_VISIBLE_DEVICES=3,2,1,0
 
 echo "${LOG_PREFIX} ***ENV BEGIN***"
 echo "${LOG_PREFIX} PBS_JOBID: $PBS_JOBID"
