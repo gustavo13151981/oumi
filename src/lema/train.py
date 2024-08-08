@@ -4,8 +4,10 @@ import random
 import time
 from typing import Callable, Optional
 
+import datasets
 import numpy as np
 import torch
+from datasets.distributed import split_dataset_by_node
 from transformers.trainer_utils import get_last_checkpoint
 
 from lema.builders import (
@@ -218,6 +220,31 @@ def train(config: TrainingConfig, **kwargs) -> None:
     eval_dataset = None
     if len(config.data.get_split(DatasetSplit.VALIDATION).datasets) != 0:
         eval_dataset = build_dataset(config, tokenizer, DatasetSplit.VALIDATION)
+
+    device_info = get_device_rank_info()
+    if device_info.world_size > 1:
+        if isinstance(dataset, datasets.Dataset):
+            dataset = split_dataset_by_node(
+                dataset,
+                rank=device_info.rank,
+                world_size=device_info.world_size,
+            )
+        else:
+            logger.warning(
+                f"Training dataset {type(dataset)} is not `datasets.Dataset`!"
+            )
+
+        if eval_dataset is not None:
+            if isinstance(eval_dataset, datasets.Dataset):
+                eval_dataset = split_dataset_by_node(
+                    eval_dataset,
+                    rank=device_info.rank,
+                    world_size=device_info.world_size,
+                )
+            else:
+                logger.warning(
+                    f"Eval dataset {type(dataset)} is not `datasets.Dataset`!"
+                )
 
     # Train model
     create_trainer_fn: Callable[..., BaseTrainer] = build_trainer(
