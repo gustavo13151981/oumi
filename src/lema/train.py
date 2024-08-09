@@ -20,6 +20,7 @@ from lema.builders import (
 )
 from lema.core.callbacks.mfu_callback import MfuTrainerCallback
 from lema.core.distributed import (
+    barrier,
     cleanup_distributed,
     estimate_dataloader_num_workers,
     get_device_rank_info,
@@ -316,6 +317,8 @@ def train(config: TrainingConfig, **kwargs) -> None:
         trainer.save_state()
         if config.training.save_final_model:
             trainer.save_model(config=config)
+
+    barrier()
 
     if is_distributed():
         cleanup_distributed()
