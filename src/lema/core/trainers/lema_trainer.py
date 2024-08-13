@@ -154,12 +154,18 @@ class Trainer(BaseTrainer):
             disable=not is_world_process_zero(),
         ) as progress_bar:
             for epoch in range(self.state.epoch, self.params.num_train_epochs):
+                logger.info(
+                    f"Starting epoch {epoch}... "
+                    f"range({self.state.epoch}, {self.params.num_train_epochs})"
+                )
                 with torch.profiler.record_function(f"epoch_{epoch}"):
                     self._set_sampler_epoch(epoch)
                     self._train_epoch(progress_bar)
 
                     if self.params.save_epoch:
+                        logger.info("DEBUG: BEFORE save state...")
                         self.save_state()
+                        logger.info("AFTER: BEFORE save state")
 
                     if (
                         self.eval_dataloader
@@ -169,11 +175,15 @@ class Trainer(BaseTrainer):
                         # TODO: OPE-223 - only the global leader is used for evaluation
                         # To enable distributed evaluation, the eval function needs
                         # to be updated to aggregate metrics accross all workers.
+                        logger.info("DEBUG: BEFORE evaluate...")
                         self.evaluate()
+                        logger.info("AFTER: AFTER evaluate")
 
                     self.state.epoch += 1
 
+                    logger.info("DEBUG: BEFORE barrier...")
                     barrier()
+                    logger.info("AFTER: AFTER barrier")
 
                     if self.state.global_step >= total_steps:
                         self.log(
