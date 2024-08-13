@@ -239,15 +239,12 @@ class Trainer(BaseTrainer):
                     .sum()
                     .item()
                 )
+                self.state.total_tokens_seen += num_tokens
 
             with self._telemetry_block("moving batch to device"):
                 batch = {
                     k: v.to(self.device, non_blocking=True) for k, v in batch.items()
                 }
-
-            with self._telemetry_block("syncing to cpu"):
-                num_tokens = num_tokens.item()
-                self.state.total_tokens_seen += num_tokens
 
             with self.mixed_precision_ctx, self._telemetry_block("model forward"):
                 self.model.require_backward_grad_sync = (  # type: ignore
