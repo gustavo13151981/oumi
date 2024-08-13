@@ -235,10 +235,6 @@ class Trainer(BaseTrainer):
             with self._telemetry_block("computing tokens"):
                 num_tokens = batch["input_ids"].ne(self.tokenizer.pad_token_id).sum()
 
-            with self._telemetry_block("syncing to cpu"):
-                num_tokens = num_tokens.item()
-                self.state.total_tokens_seen += num_tokens
-
             with self.mixed_precision_ctx, self._telemetry_block("model forward"):
                 self.model.require_backward_grad_sync = (  # type: ignore
                     end_of_global_step or stop_on_max_steps_limit
@@ -251,6 +247,10 @@ class Trainer(BaseTrainer):
 
             with self._telemetry_block("loss backward"):
                 self.scaler.scale(loss).backward()
+
+            with self._telemetry_block("syncing to cpu"):
+                num_tokens = num_tokens.item()
+                self.state.total_tokens_seen += num_tokens
 
             if end_of_global_step or stop_on_max_steps_limit:
                 with self._telemetry_block("optimizer step"):
