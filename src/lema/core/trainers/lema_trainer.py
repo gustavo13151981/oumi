@@ -146,9 +146,7 @@ class Trainer(BaseTrainer):
 
         self.start_time = time.perf_counter()
 
-        logger.info("DEBUG: BEFORE training start barrier...")
         barrier()
-        logger.info("AFTER: AFTER training start barrier")
 
         with tqdm(
             total=total_steps,
@@ -165,9 +163,7 @@ class Trainer(BaseTrainer):
                     self._train_epoch(progress_bar)
 
                     if self.params.save_epoch:
-                        logger.info("DEBUG: BEFORE save state...")
                         self.save_state()
-                        logger.info("AFTER: BEFORE save state")
 
                     if (
                         self.eval_dataloader
@@ -177,15 +173,11 @@ class Trainer(BaseTrainer):
                         # TODO: OPE-223 - only the global leader is used for evaluation
                         # To enable distributed evaluation, the eval function needs
                         # to be updated to aggregate metrics accross all workers.
-                        logger.info("DEBUG: BEFORE evaluate...")
                         self.evaluate()
-                        logger.info("AFTER: AFTER evaluate")
 
                     self.state.epoch += 1
 
-                    logger.info("DEBUG: BEFORE epoch barrier...")
                     barrier()
-                    logger.info("AFTER: AFTER epoch barrier")
 
                     if self.state.global_step >= total_steps:
                         self.log(
@@ -239,13 +231,23 @@ class Trainer(BaseTrainer):
                     self.log("End of epoch")
                     break
 
+            with self._telemetry_block("computing tokens"):
+                num_tokens = (
+                    batch["input_ids"]
+                    .to("cpu", non_blocking=True)
+                    .ne(self.tokenizer.pad_token_id)
+                    .sum()
+                    .item()
+                )
+
             with self._telemetry_block("moving batch to device"):
                 batch = {
                     k: v.to(self.device, non_blocking=True) for k, v in batch.items()
                 }
 
-            with self._telemetry_block("computing tokens"):
-                num_tokens = batch["input_ids"].ne(self.tokenizer.pad_token_id).sum()
+            with self._telemetry_block("syncing to cpu"):
+                num_tokens = num_tokens.item()
+                self.state.total_tokens_seen += num_tokens
 
             with self.mixed_precision_ctx, self._telemetry_block("model forward"):
                 self.model.require_backward_grad_sync = (  # type: ignore
@@ -259,10 +261,6 @@ class Trainer(BaseTrainer):
 
             with self._telemetry_block("loss backward"):
                 self.scaler.scale(loss).backward()
-
-            with self._telemetry_block("syncing to cpu"):
-                num_tokens = num_tokens.item()
-                self.state.total_tokens_seen += num_tokens
 
             if end_of_global_step or stop_on_max_steps_limit:
                 with self._telemetry_block("optimizer step"):
