@@ -148,6 +148,10 @@ class Trainer(BaseTrainer):
 
         self.start_time = time.perf_counter()
 
+        logger.info("DEBUG: BEFORE training start barrier...")
+        barrier()
+        logger.info("AFTER: AFTER training start barrier")
+
         with tqdm(
             total=total_steps,
             desc="Training",
@@ -181,9 +185,9 @@ class Trainer(BaseTrainer):
 
                     self.state.epoch += 1
 
-                    logger.info("DEBUG: BEFORE barrier...")
+                    logger.info("DEBUG: BEFORE epoch barrier...")
                     barrier()
-                    logger.info("AFTER: AFTER barrier")
+                    logger.info("AFTER: AFTER epoch barrier")
 
                     if self.state.global_step >= total_steps:
                         self.log(
