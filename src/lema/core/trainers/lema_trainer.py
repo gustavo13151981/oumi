@@ -1,6 +1,7 @@
 import contextlib
 import os
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from pprint import pformat
 from typing import Any, Dict, List, Optional, cast
@@ -20,6 +21,7 @@ from transformers import TrainerCallback
 from lema.builders.lr_schedules import build_lr_scheduler
 from lema.builders.optimizers import build_optimizer
 from lema.core.distributed import (
+    barrier,
     get_device_rank_info,
     global_leader_only,
     is_distributed,
@@ -28,7 +30,7 @@ from lema.core.distributed import (
     local_leader_only,
     prepare_model_for_distributed,
 )
-from lema.core.types import TrainingConfig, TrainingParams
+from lema.core.types import MixedPrecisionDtype, TrainingConfig, TrainingParams
 from lema.core.types.base_tokenizer import BaseTokenizer
 from lema.core.types.base_trainer import BaseTrainer
 from lema.performance.telemetry import TelemetryTracker
@@ -58,6 +60,9 @@ class Trainer(BaseTrainer):
         **kwargs,
     ):
         """Initializes the LeMa trainer."""
+        self.telemetry = TelemetryTracker()
+        self.start_time = time.perf_counter()
+
         self.model = model
         self.tokenizer = tokenizer
         self.params = args
@@ -68,26 +73,27 @@ class Trainer(BaseTrainer):
         self.params.validate()
 
         self.state = TrainingState()
-
         self.device_type = "cuda" if torch.cuda.is_available() else "cpu"
+
         # Enable mixed precision bf16/fp16 training if requested.
-        # Model dtype has been verified to not be bf16/fp16 if this is the case.
+        # Model dtype has been verified to be fp32 if this is the case.
         self.mixed_precision_ctx = contextlib.nullcontext()
-        self.mixed_precision_dtype = None
-        if self.params.bf16:
-            self.mixed_precision_dtype = torch.bfloat16
-        if self.params.fp16:
-            self.mixed_precision_dtype = torch.float16
-        if self.mixed_precision_dtype:
+        mixed_precision_dtype = None
+        if self.params.mixed_precision_dtype == MixedPrecisionDtype.BF16:
+            mixed_precision_dtype = torch.bfloat16
+        elif self.params.mixed_precision_dtype == MixedPrecisionDtype.FP16:
+            mixed_precision_dtype = torch.float16
+        if mixed_precision_dtype:
             self.mixed_precision_ctx = torch.amp.autocast(
                 device_type=self.device_type,
                 enabled=True,
-                dtype=self.mixed_precision_dtype,
+                dtype=mixed_precision_dtype,
             )
 
         if self.params.compile:
             self.log("Compiling model...")
-            model = cast(torch.nn.Module, torch.compile(model))
+            with self._telemetry_block("compile model"):
+                model = cast(torch.nn.Module, torch.compile(model))
 
         self.scaler = torch.amp.GradScaler(device=self.device_type, enabled=False)
 
@@ -108,7 +114,8 @@ class Trainer(BaseTrainer):
         # TODO: OPE-219 - hook-up fsdp flag
         if is_distributed():
             # Wrap model for distributed training
-            model = prepare_model_for_distributed(model, use_fsdp=False)
+            with self._telemetry_block("wrap model for distributed"):
+                model = prepare_model_for_distributed(model, use_fsdp=False)
 
         self.callbacks = callbacks if callbacks is not None else []
 
@@ -123,8 +130,6 @@ class Trainer(BaseTrainer):
         self.train_dataloader = self._get_train_dataloader()
         self.eval_dataloader = self._get_eval_dataloader() if eval_dataset else None
 
-        self.telemetry = TelemetryTracker()
-        self.start_time = time.perf_counter()
         self._init_logging()
 
     #
@@ -133,7 +138,8 @@ class Trainer(BaseTrainer):
     def train(self, resume_from_checkpoint: Optional[str] = None):
         """Trains the model."""
         if resume_from_checkpoint:
-            self._load_from_checkpoint(resume_from_checkpoint)
+            with torch.profiler.record_function("load_from_checkpoint"):
+                self._load_from_checkpoint(resume_from_checkpoint)
 
         if is_local_process_zero():
             log_trainable_parameters(self.model)
@@ -148,33 +154,49 @@ class Trainer(BaseTrainer):
             disable=not is_world_process_zero(),
         ) as progress_bar:
             for epoch in range(self.state.epoch, self.params.num_train_epochs):
-                self._set_sampler_epoch(epoch)
-                self._train_epoch(progress_bar)
+                with torch.profiler.record_function(f"epoch_{epoch}"):
+                    self._set_sampler_epoch(epoch)
+                    self._train_epoch(progress_bar)
 
-                if self.params.save_epoch:
-                    self.save_state()
+                    if self.params.save_epoch:
+                        self.save_state()
 
-                if (
-                    self.eval_dataloader
-                    and self.params.eval_strategy == "epoch"
-                    and is_world_process_zero()
-                ):
-                    # TODO: OPE-223 - only the global leader is used for evaluation
-                    # To enable distributed evaluation, th eval function needs
-                    # to be updated to aggregate metrics accross all workers.
-                    self.evaluate()
+                    if (
+                        self.eval_dataloader
+                        and self.params.eval_strategy == "epoch"
+                        and is_world_process_zero()
+                    ):
+                        # TODO: OPE-223 - only the global leader is used for evaluation
+                        # To enable distributed evaluation, the eval function needs
+                        # to be updated to aggregate metrics accross all workers.
+                        self.evaluate()
 
-                self.state.epoch += 1
+                    self.state.epoch += 1
 
-                if self.state.global_step >= total_steps:
-                    self.log(f"Reached {total_steps} global steps. Training completed.")
-                    self.log(
-                        f"Training runtime: {time.perf_counter() - self.start_time}s"
-                    )
-                    break
+                    barrier()
+
+                    if self.state.global_step >= total_steps:
+                        self.log(
+                            f"Reached {total_steps} global steps. Training completed."
+                        )
+                        break
+
+        self.log(
+            f"Training finished! Global step: {self.state.global_step} "
+            f"Training runtime: {time.perf_counter() - self.start_time}s"
+        )
+
+    @contextmanager
+    def _telemetry_block(self, name: str):
+        with torch.profiler.record_function(
+            name
+        ) as record_function_context, self.telemetry.timer(name) as timer_context:
+            yield (record_function_context, timer_context)
 
     def _train_epoch(self, progress_bar: tqdm) -> None:
         """Trains the model for one epoch."""
+        epoch_start_time = time.perf_counter()
+
         self.model.train()
         torch.cuda.empty_cache()
         self.optimizer.zero_grad(set_to_none=True)
@@ -182,44 +204,56 @@ class Trainer(BaseTrainer):
 
         data_iter = iter(self.train_dataloader)
 
+        gradient_accumulation_steps = max(1, self.params.gradient_accumulation_steps)
+
         while True:
-            if micro_step % self.params.gradient_accumulation_steps == 0:
+            if micro_step % gradient_accumulation_steps == 0:
                 self._process_callbacks("on_step_begin")
 
-            with self.telemetry.timer("fetching batch"):
+            # True if `max_steps` is configured and we reached the limit.
+            stop_on_max_steps_limit = (
+                self.params.max_steps > 0
+                and (self.state.global_step + 1) >= self.params.max_steps
+            )
+            # End of logical step. May include multiple micro steps
+            # if gradient_accumulation_steps > 1.
+            end_of_global_step = ((micro_step + 1) % gradient_accumulation_steps) == 0
+
+            with self._telemetry_block("fetching batch"):
                 try:
                     batch = next(data_iter)
                 except StopIteration:
+                    # FIXME Update metrics and log
                     self.log("End of epoch")
-                    return
+                    break
 
-            with self.telemetry.timer("moving batch to device"):
+            with self._telemetry_block("moving batch to device"):
                 batch = {
                     k: v.to(self.device, non_blocking=True) for k, v in batch.items()
                 }
 
-            with self.telemetry.timer("computing tokens"):
+            with self._telemetry_block("computing tokens"):
                 num_tokens = batch["input_ids"].ne(self.tokenizer.pad_token_id).sum()
 
-            with self.telemetry.timer("syncing to cpu"):
+            with self._telemetry_block("syncing to cpu"):
                 num_tokens = num_tokens.item()
                 self.state.total_tokens_seen += num_tokens
 
-            with self.mixed_precision_ctx, self.telemetry.timer("model forward"):
+            with self.mixed_precision_ctx, self._telemetry_block("model forward"):
                 self.model.require_backward_grad_sync = (  # type: ignore
-                    micro_step + 1
-                ) % self.params.gradient_accumulation_steps == 0
+                    end_of_global_step or stop_on_max_steps_limit
+                )
 
                 outputs = self.model(**batch)
-                loss = outputs["loss"] / self.params.gradient_accumulation_steps
+                loss = outputs["loss"] / gradient_accumulation_steps
                 # assert loss.dtype is torch.bfloat16
                 # assert outputs["logits"].dtype is torch.bfloat16
 
-            with self.telemetry.timer("loss backward"):
+            with self._telemetry_block("loss backward"):
                 self.scaler.scale(loss).backward()
 
-            if (micro_step + 1) % self.params.gradient_accumulation_steps == 0:
-                with self.telemetry.timer("optimizer step"):
+            if end_of_global_step or stop_on_max_steps_limit:
+                with self._telemetry_block("optimizer step"):
                     self.scaler.unscale_(self.optimizer)
                     torch.nn.utils.clip_grad_norm_(
                         self.model.parameters(), max_norm=self.max_norm
@@ -240,10 +274,13 @@ class Trainer(BaseTrainer):
 
                 self._process_callbacks("on_step_end")
 
-                if self.state.global_step % self.params.logging_steps == 0:
+                if self.params.logging_steps > 0 and (
+                    stop_on_max_steps_limit
+                    or (self.state.global_step % self.params.logging_steps == 0)
+                ):
                     # Log metrics
                     elapsed = time.perf_counter() - self.start_time
-                    loss_value = loss.item() * self.params.gradient_accumulation_steps
+                    loss_value = loss.item() * gradient_accumulation_steps
                     metrics = {
                         "train/loss": loss_value,
                         "learning_rate": last_lr,
@@ -280,10 +317,17 @@ class Trainer(BaseTrainer):
                     # to be updated to aggregate metrics accross all workers.
                     self.evaluate()
 
-            if self.state.global_step >= self.params.max_steps:
+            if stop_on_max_steps_limit:
+                self.log(f"Reached {self.params.max_steps} max steps condition.")
                 break
 
             micro_step += 1
+
+        self.log(
+            f"End of epoch. "
+            f"Global step: {self.state.global_step}. "
+            f"Epoch runtime: {time.perf_counter() - epoch_start_time}s"
+        )
 
     #
     # Evaluation
