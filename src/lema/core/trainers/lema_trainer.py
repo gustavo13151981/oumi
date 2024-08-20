@@ -88,12 +88,19 @@ class Trainer(BaseTrainer):
                 dtype=mixed_precision_dtype,
             )
 
+        # We want to enable gradient scaling for fp16 mixed precision training
+        # to prevent gradient underflows. This is not needed for bf16 since it has the
+        # same dynamic range as fp32. See here for details:
+        # https://pytorch.org/docs/stable/amp.html#gradient-scaling
+        self.scaler = torch.amp.GradScaler(
+            device=self.device_type,
+            enabled=self.params.mixed_precision_dtype == MixedPrecisionDtype.FP16,
+        )
+
         if self.params.compile:
             self.log("Compiling model...")
             with self._telemetry_block("compile model"):
                 model = cast(torch.nn.Module, torch.compile(model))
-
-        self.scaler = torch.amp.GradScaler(device=self.device_type, enabled=False)
 
         device_info = get_device_rank_info()
 
@@ -496,7 +503,8 @@ class Trainer(BaseTrainer):
         if self.params.enable_wandb:
             project_name = os.environ.get("WANDB_PROJECT", "lema")
             self.log(f"Logging to Weights and Biases project: '{project_name}'")
-            wandb.init(project=project_name, name=self.params.run_name)
+            run = wandb.init(project=project_name, name=self.params.run_name)
+            self.log(f"View wandb run {run.id} at: {run.get_url()}")
             wandb.watch(self.model)
 
         if self.params.enable_tensorboard:

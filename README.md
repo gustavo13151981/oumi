@@ -1,9 +1,5 @@
 # Learning Machines (LeMa)
 
-Learning Machines
-
-## Description
-
 LeMa is a learning machines modeling platform that allows you to build foundation models end-to-end including data curation/synthesis, pretraining, tuning, and evaluation.
 
 - Easy-to-use interface for data preprocessing, model training, and evaluation.
@@ -15,6 +11,14 @@ LeMa is a learning machines modeling platform that allows you to build foundatio
 
 - [x] Easily run in a locally, jupyter notebook, vscode debugger, or remote cluster
 - [x] Full finetuning using SFT, DPO
+
+Take a [tour of our repository](https://github.com/openlema/lema/blob/main/notebooks/LeMa%20-%20A%20Tour.ipynb) to learn more!
+
+## Documentation
+
+View our API documentation [here](https://learning-machines.ai/docs/latest/index.html).
+
+Reach out to matthew@learning-machines.ai if you have problems with access.
 
 ## Dev Environment Setup
 
@@ -34,7 +38,7 @@ LeMa is a learning machines modeling platform that allows you to build foundatio
 
 ### 3. Install GitHub CLI
 
-#### 3.1. Instructions for Mac
+#### 3.1 Instructions for Mac
 
    Install Homebrew (the command below was copied from www.brew.sh)
 
