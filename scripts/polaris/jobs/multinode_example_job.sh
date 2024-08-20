@@ -27,7 +27,7 @@ module load conda
 # Activate the LeMa Conda environment.
 conda activate /home/$USER/miniconda3/envs/lema
 
-TRAINING_MODE="ddp"  # NOTE: Modify this value to configure training mode.
+TRAINING_MODE="ddp1gpu"  # NOTE: Modify this value to configure training mode.
 
 echo "Starting ${TRAINING_MODE} training with ${LEMA_NUM_NODES} node(s)..."
 
@@ -59,7 +59,7 @@ mpiexec --verbose \
     --np $((${LEMA_NUM_NODES} * ${NRANKS_PER_NODE})) \
     -ppn ${NRANKS_PER_NODE} \
     -d ${NDEPTH}  --cpu-bind "${CPU_BIND}" \
-    ./scripts/polaris/jobs/multinode_example_worker.sh -m "${TRAINING_MODE}" -p
+    ./scripts/polaris/jobs/multinode_example_worker.sh -m "${TRAINING_MODE}"
 
 echo -e "Finished ${TRAINING_MODE} training on ${LEMA_NUM_NODES} node(s):\n$(cat $PBS_NODEFILE)"
 echo "Polaris job is all done!"
