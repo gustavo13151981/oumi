@@ -1,4 +1,3 @@
-import glob
 import importlib
 import inspect
 import os
@@ -155,7 +154,7 @@ def summarize_configs(
         raise ImportError(f"Could not import config class: {config_class}")
 
     configs = []
-    for config_file in glob.glob(str(config_path / "**" / "*.yaml"), recursive=True):
+    for config_file in config_path.rglob("*.yaml"):
         try:
             config = config_cls.from_yaml(config_file)
             configs.append(

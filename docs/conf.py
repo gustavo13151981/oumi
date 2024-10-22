@@ -105,10 +105,10 @@ html_theme_options = {
     "use_repository_button": True,
     "use_source_button": True,
     "logo": {
-        "image_light": "_static/logo/oumi_logo_light.png",
-        "image_dark": "_static/logo/oumi_logo_dark.png",
+        # Note: the light logo is intentionally used for the dark theme
+        "image_light": "_static/logo/oumi_logo_dark.png",
+        "image_dark": "_static/logo/oumi_logo_light.png",
         "alt_text": "Oumi Documentation - Home",
-        # "link": "https://oumi.ai",
     },
     "analytics": {
         "google_analytics_id": "G-YZE0YFDLPT",
