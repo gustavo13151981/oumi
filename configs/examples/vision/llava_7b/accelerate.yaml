@@ -7,7 +7,7 @@ distributed_type: FSDP
 downcast_bf16: "no"
 enable_cpu_affinity: false
 fsdp_config:
-  fsdp_activation_checkpointing: false
+  fsdp_activation_checkpointing: false # true
   # fsdp_auto_wrap_policy: TRANSFORMER_BASED_WRAP
   fsdp_auto_wrap_policy: SIZE_BASED_WRAP
   # fsdp_forward_prefetch: false
@@ -17,11 +17,11 @@ fsdp_config:
   fsdp_cpu_ram_efficient_loading: true
   fsdp_forward_prefetch: true
   fsdp_limit_all_gathers: true
-  fsdp_offload_params: true # false
+  fsdp_offload_params: false # false
   fsdp_sharding_strategy: HYBRID_SHARD
   fsdp_state_dict_type: FULL_STATE_DICT
   fsdp_sync_module_states: true
-  fsdp_transformer_layer_cls_to_wrap: LlamaDecoderLayer
+  # fsdp_transformer_layer_cls_to_wrap: LlamaDecoderLayer
   fsdp_use_orig_params: true
 machine_rank: 0
 main_training_function: main

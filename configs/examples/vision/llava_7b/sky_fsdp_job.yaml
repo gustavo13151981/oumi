@@ -49,8 +49,10 @@ run: |
       "training.max_steps=20" \
       "training.save_steps=0" \
       "training.save_final_model=false" \
+      "training.empty_device_cache_steps=1" \
       "training.per_device_train_batch_size=2" \
       "training.gradient_accumulation_steps=4" \
+      "enable_fsdp"
       "training.enable_gradient_checkpointing=False"
 
   echo "Node ${SKYPILOT_NODE_RANK} is all done!"
@@ -65,4 +67,13 @@ run: |
 #  fsdp_forward_prefetch: true bs=2, gas=4, TRL_SFT, fsdp_offload_params: true https://wandb.ai/lema-train-test/oumi-train/runs/rwdcq2se
 # 'train_samples_per_second': 1.073, 'train_steps_per_second': 0.034, 'train_tokens_per_second': 274.719,
 
-# SIZE_BASED_WRAP 10M
+# SIZE_BASED_WRAP 100M
+
+# fsdp_activation_checkpointing: false , fsdp_offload_params: true https://wandb.ai/lema-train-test/oumi-train/runs/2913cbzq
+# 'train_samples_per_second': 0.94, 'train_steps_per_second': 0.029, 'train_tokens_per_second': 240.564,
+
+# sky launch -i 10 --env OUMI_RUN_NAME=llava.7b.sft.vqav2-small.frozen-vision.4xA10040GB.20steps.bs2.gas4.noprefetch.cpuoffload.v101 --cloud GCP --use-spot --num-nodes 1 --gpus "A100:4" --cluster xrdaukar-1node4gpu-02-lema-cluster ./configs/examples/vision/llava_7b/sky_fsdp_job.yaml
+# fsdp_activation_checkpointing: true, fsdp_offload_params: true
+# shape error
+
+# fsdp_activation_checkpointing: false, fsdp_offload_params: false
