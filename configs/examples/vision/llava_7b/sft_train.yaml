@@ -72,10 +72,10 @@ training:
   log_model_summary: False
   enable_wandb: True
 
-
-  fsdp:
-    enable_fsdp: True
-    sharding_strategy: "HYBRID_SHARD"
-    mixed_precision: "bf16"
-    auto_wrap_policy: "TRANSFORMER_BASED"
-    transformer_layer_cls: "transformers.models.llama.modeling_llama.LlamaDecoderLayer"
+# https://github.com/oumi-ai/oumi/blob/cd703576e9edab77330358b1a11943bb223dc327/configs/examples/fineweb_ablation_pretraining/fsdp/oumi_train.yaml#L59
+# fsdp:
+#  enable_fsdp: True
+#  sharding_strategy: "HYBRID_SHARD"
+#  mixed_precision: "bf16"
+#  auto_wrap_policy: "TRANSFORMER_BASED"
+#  transformer_layer_cls: "transformers.models.llama.modeling_llama.LlamaDecoderLayer"

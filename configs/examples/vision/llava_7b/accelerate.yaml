@@ -11,7 +11,7 @@ fsdp_config:
   # fsdp_auto_wrap_policy: TRANSFORMER_BASED_WRAP
   fsdp_auto_wrap_policy: SIZE_BASED_WRAP
   # fsdp_forward_prefetch: false
-  fsdp_min_num_params: 100000000
+  fsdp_min_num_params: 20000000
 
   fsdp_backward_prefetch: BACKWARD_PRE
   fsdp_cpu_ram_efficient_loading: true
