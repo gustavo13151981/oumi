@@ -54,3 +54,7 @@ run: |
       "training.enable_gradient_checkpointing=False"
 
   echo "Node ${SKYPILOT_NODE_RANK} is all done!"
+
+
+#  4PUS
+#  sky launch -i 10 --env OUMI_RUN_NAME=llava.7b.sft.vqav2-small.frozen-vision.4xA10040GB.20steps.v101 --cloud GCP --use-spot --num-nodes 1 --gpus "A100:4" --cluster xrdaukar-1node4gpu-01-lema-cluster ./configs/examples/vision/llava_7b/sky_fsdp_job.yaml
