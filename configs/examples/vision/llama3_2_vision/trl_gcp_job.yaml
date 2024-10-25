@@ -22,6 +22,11 @@ file_mounts:
   # This is created on your local machine by running `huggingface-cli login`.
   ~/.cache/huggingface/token: ~/.cache/huggingface/token
 
+storage_mounts:
+  /output_dir_gcs:
+    source: gs://oumi-dev-us-central1
+    store: gcs
+
 envs:
   WANDB_PROJECT: oumi-train
   OUMI_RUN_NAME: llama32v.11b.sft.trl
@@ -53,7 +58,8 @@ run: |
       -c configs/examples/vision/llama3_2_vision/sft_train.yaml \
       "training.run_name='${OUMI_RUN_NAME}.${SKYPILOT_TASK_ID}'" \
       "training.enable_gradient_checkpointing=False" \
-      "training.output_dir='${OUMI_RUN_NAME}'"\
+      "training.max_steps=200" \
+      "training.output_dir='/output_dir_gcs/nikolai/runs/2024-10-25/${OUMI_RUN_NAME}-200steps/'" \
       "training.logging_dir='${OUMI_RUN_NAME}/runs'"
 
   echo "Node ${SKYPILOT_NODE_RANK} is all done!"
