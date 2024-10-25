@@ -45,6 +45,8 @@ run: |
   set -e  # Exit if any command failed.
   source ./configs/examples/misc/sky_init.sh
 
+  ls -l /output_dir_gcs/
+
   set -x  # Print "accelerate launch" command with expanded variables
   accelerate launch \
       --num_machines ${OUMI_NUM_NODES} \
@@ -58,8 +60,11 @@ run: |
       -c configs/examples/vision/llama3_2_vision/sft_train.yaml \
       "training.run_name='${OUMI_RUN_NAME}.${SKYPILOT_TASK_ID}'" \
       "training.enable_gradient_checkpointing=False" \
-      "training.max_steps=200" \
-      "training.output_dir='/output_dir_gcs/nikolai/runs/2024-10-25/${OUMI_RUN_NAME}-200steps/'" \
-      "training.logging_dir='${OUMI_RUN_NAME}/runs'"
+      "training.max_steps=400" \
+      "training.output_dir='output/${OUMI_RUN_NAME}-400steps/'" \
+      "training.logging_dir='${OUMI_RUN_NAME}/runs'" \
+      "training.save_final_model=true"
+
+  cp -R "output/${OUMI_RUN_NAME}-400steps/" "/output_dir_gcs/nikolai/runs/2024-10-25/${OUMI_RUN_NAME}-400steps/"
 
   echo "Node ${SKYPILOT_NODE_RANK} is all done!"
