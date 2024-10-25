@@ -55,10 +55,10 @@ run: |
       -c configs/examples/vision/blip2_opt_2.7b/sft_train.yaml \
       "training.run_name='${OUMI_RUN_NAME}.${SKYPILOT_TASK_ID}'" \
       "training.max_steps=400" \
-      "training.output_dir='output/${OUMI_RUN_NAME}-400steps/'" \
+      "training.output_dir='output/${OUMI_RUN_NAME}-400steps-v02/'" \
       "training.save_steps=0" \
       "training.save_final_model=true"
 
-  cp -R "output/${OUMI_RUN_NAME}-400steps/" "/output_dir_gcs/nikolai/runs/2024-10-25/${OUMI_RUN_NAME}-400steps/"
+  cp -R "output/${OUMI_RUN_NAME}-400steps/" "/output_dir_gcs/nikolai/runs/2024-10-25/${OUMI_RUN_NAME}-400steps-v02/"
 
   echo "Node ${SKYPILOT_NODE_RANK} is all done!"
