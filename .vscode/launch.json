@@ -120,7 +120,7 @@
                 "--image",
                 "/home/user/data/images/image.jpg",
                 "-c",
-                "configs/examples/vision/llava_7b/infer.yaml"
+                "configs/examples/vision/llama3_2_vision/infer.yaml"
             ],
             "justMyCode": true
         },
