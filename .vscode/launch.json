@@ -118,7 +118,7 @@
                 "infer",
                 "--interactive",
                 "--image",
-                "tests/testdata/images/the_great_wave_off_kanagawa.jpg",
+                "/home/user/data/images/image.jpg",
                 "-c",
                 "configs/examples/vision/llava_7b/infer.yaml"
             ],
