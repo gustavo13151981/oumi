@@ -1,6 +1,6 @@
 name: llama2b-pt
 # NOTE: Replace with your username.
-user: your_username
+user: nikg
 num_nodes: 2
 
 resources:
