@@ -7,6 +7,7 @@ from oumi.core.configs import InferenceConfig, ModelParams
 from oumi.core.inference import BaseInferenceEngine
 from oumi.core.types.conversation import Conversation, Message, Role
 from oumi.utils.logging import logger
+from oumi.utils.peft_utils import get_lora_rank
 
 try:
     import vllm  # pyright: ignore[reportMissingImports]
@@ -30,6 +31,8 @@ class VLLMInferenceEngine(BaseInferenceEngine):
         tensor_parallel_size: int = -1,
         quantization: str | None = None,
         enable_prefix_caching: bool = True,
+        gpu_memory_utilization: float = 1.0,
+        enforce_eager: bool = True,
     ):
         """Initializes the inference Engine.
 
@@ -39,11 +42,22 @@ class VLLMInferenceEngine(BaseInferenceEngine):
                 If set to -1, we will use all the available GPUs.
             quantization: The quantization method to use for inference.
             enable_prefix_caching: Whether to enable prefix caching.
+            gpu_memory_utilization: The fraction of available GPU memory the model's
+                executor will use. It can range from 0 to 1. Defaults to 1.0, i.e.,
+                full (100%) memory utilization.
+            enforce_eager: Whether to enforce eager execution. Defaults to True.
+                If False, will use eager mode and CUDA graph in hybrid mode.
         """
         if not vllm:
             raise RuntimeError(
                 "vLLM is not installed. "
                 "Please install the GPU dependencies for this package."
+            )
+
+        if gpu_memory_utilization > 1.0 or gpu_memory_utilization <= 0:
+            raise ValueError(
+                "GPU memory utilization must be within (0, 1]. Got "
+                f"{gpu_memory_utilization}."
             )
 
         if tensor_parallel_size <= 0:
@@ -52,6 +66,7 @@ class VLLMInferenceEngine(BaseInferenceEngine):
             else:
                 tensor_parallel_size = 1
 
+        vllm_kwargs = {}
         self._lora_request = None
         if model_params.adapter_model:
             # ID should be unique for this adapter, but isn't enforced by vLLM.
@@ -61,6 +76,9 @@ class VLLMInferenceEngine(BaseInferenceEngine):
                 lora_path=model_params.adapter_model,
             )
             logger.info(f"Loaded LoRA adapter: {model_params.adapter_model}")
+            lora_rank = get_lora_rank(model_params.adapter_model)
+            vllm_kwargs["max_lora_rank"] = lora_rank
+            logger.info(f"Setting vLLM max LoRA rank to {lora_rank}")
         self._tokenizer = build_tokenizer(model_params)
         self._model_params = model_params
         self._llm = vllm.LLM(
@@ -75,6 +93,9 @@ class VLLMInferenceEngine(BaseInferenceEngine):
             enable_prefix_caching=enable_prefix_caching,
             enable_lora=self._lora_request is not None,
             max_model_len=model_params.model_max_length,
+            gpu_memory_utilization=gpu_memory_utilization,
+            enforce_eager=enforce_eager,
+            **vllm_kwargs,
         )
         # Ensure the tokenizer is set properly
         self._llm.set_tokenizer(self._tokenizer)
@@ -169,11 +190,11 @@ class VLLMInferenceEngine(BaseInferenceEngine):
             )
             output_conversations.append(new_conversation)
 
-            if inference_config.output_path:
-                self._save_conversation(
-                    new_conversation,
-                    inference_config.output_path,
-                )
+        if inference_config.output_path:
+            self._save_conversations(
+                output_conversations,
+                inference_config.output_path,
+            )
         return output_conversations
 
     def infer_online(
