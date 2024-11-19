@@ -16,6 +16,17 @@ from oumi.utils.logging import logger
 from oumi.utils.version_utils import is_dev_build
 
 
+def _clear_line() -> None:
+    """Clears the current line in the terminal."""
+    _ = sys.stdout.write("\r\033[K")
+
+
+def _clear_and_print(message: str) -> None:
+    """Clears the current line and prints a message."""
+    _clear_line()
+    print(message)
+
+
 def _get_working_dir(current: str) -> str:
     """Prompts the user to select the working directory, if relevant."""
     if not is_dev_build():
@@ -43,7 +54,7 @@ def _print_spinner_and_sleep(
     # animated instead of printing each iteration on a new line. \r (written above)
     # moves the cursor to the beginning of the line. \033[K deletes everything from the
     # cursor to the end of the line.
-    _ = sys.stdout.write("\033[K")
+    _clear_line()
 
 
 def _print_and_wait(
@@ -107,7 +118,7 @@ def _down_worker(cluster: str, cloud: Optional[str]) -> bool:
         if target_cluster:
             target_cluster.down()
         else:
-            print(f"Cluster {cluster} not found.")
+            _clear_and_print(f"Cluster {cluster} not found.")
         return True
     # Make a best effort to find a single cluster to turn down without a cloud.
     clusters = []
@@ -117,12 +128,12 @@ def _down_worker(cluster: str, cloud: Optional[str]) -> bool:
         if target_cluster:
             clusters.append(target_cluster)
     if len(clusters) == 0:
-        print(f"Cluster {cluster} not found.")
+        _clear_and_print(f"Cluster {cluster} not found.")
         return True
     if len(clusters) == 1:
         clusters[0].down()
     else:
-        print(
+        _clear_and_print(
             f"Multiple clusters found with name {cluster}. "
             "Specify a cloud to turn down with `--cloud`."
         )
@@ -141,7 +152,7 @@ def _stop_worker(cluster: str, cloud: Optional[str]) -> bool:
         if target_cluster:
             target_cluster.stop()
         else:
-            print(f"Cluster {cluster} not found.")
+            _clear_and_print(f"Cluster {cluster} not found.")
         return True
     # Make a best effort to find a single cluster to stop without a cloud.
     clusters = []
@@ -151,12 +162,12 @@ def _stop_worker(cluster: str, cloud: Optional[str]) -> bool:
         if target_cluster:
             clusters.append(target_cluster)
     if len(clusters) == 0:
-        print(f"Cluster {cluster} not found.")
+        _clear_and_print(f"Cluster {cluster} not found.")
         return True
     if len(clusters) == 1:
         clusters[0].stop()
     else:
-        print(
+        _clear_and_print(
             f"Multiple clusters found with name {cluster}. "
             "Specify a cloud to stop with `--cloud`."
         )
@@ -216,6 +227,7 @@ def cancel(
     id: Annotated[
         str, typer.Option(help="Filter results by jobs matching this job ID.")
     ],
+    level: cli_utils.LOG_LEVEL_TYPE = None,
 ) -> None:
     """Cancels a job.
 
@@ -223,6 +235,7 @@ def cancel(
         cloud: Filter results by this cloud.
         cluster: Filter results by clusters matching this name.
         id: Filter results by jobs matching this job ID.
+        level: The logging level for the specified command.
     """
     _print_and_wait(
         f"Canceling job {id}", _cancel_worker, id=id, cloud=cloud, cluster=cluster
@@ -237,12 +250,14 @@ def down(
             help="If specified, only clusters on this cloud will be affected."
         ),
     ] = None,
+    level: cli_utils.LOG_LEVEL_TYPE = None,
 ) -> None:
     """Turns down a cluster.
 
     Args:
         cluster: The cluster to turn down.
         cloud: If specified, only clusters on this cloud will be affected.
+        level: The logging level for the specified command.
     """
     _print_and_wait(
         f"Turning down cluster `{cluster}`",
@@ -272,6 +287,7 @@ def run(
     detach: Annotated[
         bool, typer.Option(help="Run the job in the background.")
     ] = False,
+    level: cli_utils.LOG_LEVEL_TYPE = None,
 ) -> None:
     """Runs a job on the target cluster.
 
@@ -282,6 +298,7 @@ def run(
             cluster will be created. If unspecified, a new cluster will be created with
             a unique name.
         detach: Run the job in the background.
+        level: The logging level for the specified command.
     """
     extra_args = cli_utils.parse_extra_cli_args(ctx)
     parsed_config: launcher.JobConfig = launcher.JobConfig.from_yaml_and_arg_list(
@@ -309,6 +326,7 @@ def status(
     id: Annotated[
         Optional[str], typer.Option(help="Filter results by jobs matching this job ID.")
     ] = None,
+    level: cli_utils.LOG_LEVEL_TYPE = None,
 ) -> None:
     """Prints the status of jobs launched from Oumi.
 
@@ -319,6 +337,7 @@ def status(
         cloud: Filter results by this cloud.
         cluster: Filter results by clusters matching this name.
         id: Filter results by jobs matching this job ID.
+        level: The logging level for the specified command.
     """
     print("========================")
     print("Job status:")
@@ -359,12 +378,14 @@ def stop(
             help="If specified, only clusters on this cloud will be affected."
         ),
     ] = None,
+    level: cli_utils.LOG_LEVEL_TYPE = None,
 ) -> None:
     """Stops a cluster.
 
     Args:
         cluster: The cluster to stop.
         cloud: If specified, only clusters on this cloud will be affected.
+        level: The logging level for the specified command.
     """
     _print_and_wait(
         f"Stopping cluster `{cluster}`",
@@ -394,6 +415,7 @@ def up(
     detach: Annotated[
         bool, typer.Option(help="Run the job in the background.")
     ] = False,
+    level: cli_utils.LOG_LEVEL_TYPE = None,
 ):
     """Launches a job.
 
@@ -404,6 +426,7 @@ def up(
             cluster will be created. If unspecified, a new cluster will be created with
             a unique name.
         detach: Run the job in the background.
+        level: The logging level for the specified command.
     """
     extra_args = cli_utils.parse_extra_cli_args(ctx)
     parsed_config: launcher.JobConfig = launcher.JobConfig.from_yaml_and_arg_list(
@@ -430,7 +453,7 @@ def up(
     )
 
 
-def which() -> None:
+def which(level: cli_utils.LOG_LEVEL_TYPE = None) -> None:
     """Prints the available clouds."""
     clouds = launcher.which_clouds()
     print("========================")
