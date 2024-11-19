@@ -5,6 +5,8 @@ import torch
 from oumi.utils.torch_utils import (
     convert_to_list_of_tensors,
     create_ones_like,
+    get_first_dim_len,
+    get_torch_dtype,
     pad_sequences,
     pad_sequences_left_side,
     pad_sequences_right_side,
@@ -262,3 +264,68 @@ def test_create_ones_like_success_tensor():
     assert np.all(result[0].numpy() == np.asarray([1, 1]))
     assert isinstance(result[1], torch.Tensor)
     assert np.all(result[1].numpy() == np.asarray([1, 1, 1]))
+
+
+@pytest.mark.parametrize(
+    "dtype_str, expected_dtype",
+    [
+        ("f64", torch.float64),
+        ("float64", torch.float64),
+        ("double", torch.float64),
+        ("f32", torch.float32),
+        ("float32", torch.float32),
+        ("float", torch.float32),
+        ("bf16", torch.bfloat16),
+        ("bfloat16", torch.bfloat16),
+        ("f16", torch.float16),
+        ("float16", torch.float16),
+        ("half", torch.float16),
+        ("uint8", torch.uint8),
+    ],
+)
+def test_get_torch_dtype(dtype_str, expected_dtype):
+    result = get_torch_dtype(dtype_str)
+    assert result == expected_dtype
+
+
+def test_get_torch_dtype_invalid():
+    with pytest.raises(ValueError, match="Unsupported torch dtype: invalid_dtype"):
+        get_torch_dtype("invalid_dtype")
+
+
+def test_get_first_dim_len_list():
+    assert get_first_dim_len([]) == 0
+    assert get_first_dim_len([1]) == 1
+    assert get_first_dim_len([1, 2, 3]) == 3
+    assert get_first_dim_len([1, [[6, 9], 7], "abc"]) == 3
+    assert get_first_dim_len([[[6, 9], 7], "abc"]) == 2
+
+
+def test_get_first_dim_len_numpy_array():
+    assert get_first_dim_len(np.asarray([])) == 0
+    assert get_first_dim_len(np.asarray([1])) == 1
+    assert get_first_dim_len(np.asarray([1, 2, 3])) == 3
+    assert get_first_dim_len(np.asarray([[1, 2, 3]])) == 1
+    assert get_first_dim_len(np.asarray([[1, 2, 3], [1, 2, 3]])) == 2
+    assert get_first_dim_len(np.asarray([["a1", "a2", "a3"], ["x1", "x2", "x3"]])) == 2
+
+
+def test_get_first_dim_len_torch_tensor():
+    assert get_first_dim_len(torch.from_numpy(np.asarray([]))) == 0
+    assert get_first_dim_len(torch.from_numpy(np.asarray([1]))) == 1
+    assert get_first_dim_len(torch.from_numpy(np.asarray([1, 2, 3]))) == 3
+    assert get_first_dim_len(torch.from_numpy(np.asarray([[1, 2, 3]]))) == 1
+    assert get_first_dim_len(torch.from_numpy(np.asarray([[1, 2, 3], [1, 2, 3]]))) == 2
+
+
+def test_get_first_dim_len_bad_input_type():
+    with pytest.raises(ValueError, match="Unsupported type"):
+        get_first_dim_len(None)
+    with pytest.raises(ValueError, match="Unsupported type"):
+        get_first_dim_len("hello")
+    with pytest.raises(ValueError, match="Unsupported type"):
+        get_first_dim_len(123)
+    with pytest.raises(ValueError, match="Unsupported type"):
+        get_first_dim_len(float(123))
+    with pytest.raises(ValueError, match="Unsupported type"):
+        get_first_dim_len(test_get_first_dim_len_bad_input_type)

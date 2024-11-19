@@ -44,7 +44,7 @@ For an overview of Oumi features and usage, check out the [user guide](https://o
 1. Install Oumi:
 
    ```shell
-   pip install 'oumi[all]'
+   pip install 'oumi'
    ```
 
 2. Set up your configuration file (example configs are provided in the [configs](/configs) directory).
@@ -71,10 +71,10 @@ These configurations demonstrate how to setup and run full training for differen
 | **Example Models** | | | | |
 | Aya | SFT | [train.yaml](configs/projects/aya/sft/train.yaml) | GCP | ✨ Supported ✨ |
 | Zephyr |QLoRA | [qlora_train.yaml](/configs/projects/zephyr/sft/qlora_train.yaml) | GCP | ✨ Supported ✨ |
-| ChatQA | SFT | [chatqa_stage1_train.yaml](/configs/examples/chatqa/chatqa_stage1_train.yaml) | GCP | ✨ Supported ✨ |
+| ChatQA | SFT | [chatqa_stage1_train.yaml](/configs/projects/chatqa/sft/chatqa_stage1_train.yaml) | GCP | ✨ Supported ✨ |
 | **Pre-training** | | | | |
 | GPT-2 | Pre-training | [gpt2.pt.mac.yaml](/configs/recipes/gpt2/pretraining/mac_train.yaml) | Mac (mps) | ✨ Supported ✨ |
-| Llama2 2b | Pre-training | [llama2b.pt.yaml](/configs/examples/fineweb_ablation_pretraining/ddp/train.yaml) | Polaris | ✨ Supported ✨ |
+| Llama2 2b | Pre-training | [fineweb.pt.yaml](/configs/examples/fineweb_ablation_pretraining/ddp/train.yaml) | Polaris | ✨ Supported ✨ |
 
 ## Tutorials
 
