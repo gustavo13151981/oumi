@@ -20,7 +20,9 @@ data:
         seed: 42
         transform_num_workers: "auto"
         dataset_kwargs:
-          processor_name: "llava-hf/llava-1.5-7b-hf"
+          # processor_name: "llava-hf/llava-1.5-7b-hf"
+          # processor_name: "huggingface/cats-image"
+          processor_name: "microsoft/swinv2-tiny-patch4-window8-256"
           limit: 8192
           return_tensors: True
       # - dataset_name: "HuggingFaceH4/llava-instruct-mix-vsft"

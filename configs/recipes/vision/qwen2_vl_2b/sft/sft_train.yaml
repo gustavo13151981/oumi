@@ -2,6 +2,7 @@ model:
   model_name: "Qwen/Qwen2-VL-2B-Instruct"
   torch_dtype_str: "bfloat16"
   model_max_length: 4096
+  tokenizer_name: "microsoft/swinv2-tiny-patch4-window8-256"
   trust_remote_code: True
   attn_implementation: "sdpa"
   chat_template: "llava"
@@ -15,12 +16,16 @@ data:
     target_col: "text" # TODO: useless col, but required by the trainer
     datasets:
       - dataset_name: "merve/vqav2-small"
+        # dataset_name: "huggingface/cats-image"
         split: "validation"
         shuffle: True
         seed: 42
         transform_num_workers: "auto"
         dataset_kwargs:
           processor_name: "Qwen/Qwen2-VL-2B-Instruct"
+          # processor_name: "llava-hf/llava-1.5-7b-hf"
+          # processor_name: "huggingface/cats-image"
+          # processor_name: "microsoft/swinv2-tiny-patch4-window8-256"
           limit: 4096
           return_tensors: True
 
