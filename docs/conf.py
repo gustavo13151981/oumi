@@ -27,6 +27,7 @@ extensions = [
     "myst_nb",  # implicitly enables myst_parser
     "sphinx_copybutton",
     "sphinx_rtd_theme",
+    "sphinx_design",
     "sphinx.ext.autodoc",
     "sphinx.ext.coverage",
     "sphinx.ext.duration",
@@ -131,6 +132,8 @@ myst_enable_extensions = [
     "colon_fence",  # Allows for directive blocks to be denoted by :::
     "tasklist",  # Enables GitHub-style task lists
     "fieldlist",  # Allows using rst-like field lists in markdown
+    "deflist",  # Allows using definition lists
+    "attrs_inline",  # Allows inline attributes
 ]
 
 suppress_warnings = [
