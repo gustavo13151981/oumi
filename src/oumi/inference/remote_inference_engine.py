@@ -2,9 +2,16 @@ import asyncio
 import copy
 import json
 import os
+import tempfile
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
+from pathlib import Path
 from typing import Any, Optional
 
+import aiofiles
 import aiohttp
+import jsonlines
 import pydantic
 from tqdm.asyncio import tqdm
 from typing_extensions import override
@@ -17,8 +24,17 @@ from oumi.core.configs import (
     RemoteParams,
 )
 from oumi.core.inference import BaseInferenceEngine
-from oumi.core.types.conversation import Conversation, Message, Role, Type
-from oumi.utils.image_utils import base64encode_image_bytes, load_image_bytes_to_message
+from oumi.core.types.conversation import (
+    ContentItem,
+    Conversation,
+    Message,
+    Role,
+    Type,
+)
+from oumi.utils.image_utils import (
+    base64encode_image_bytes,
+    load_image_bytes_to_content_item,
+)
 
 _CONTENT_KEY: str = "content"
 _MESSAGE_KEY: str = "message"
@@ -46,36 +62,53 @@ class RemoteInferenceEngine(BaseInferenceEngine):
         self._remote_params = copy.deepcopy(remote_params)
 
     @staticmethod
-    def _get_content_for_message(message: Message) -> dict[str, Any]:
+    def _get_content_for_message(message: Message) -> list[dict[str, Any]]:
         """Returns the content for a message.
 
         Args:
             message: The message to get the content for.
 
         Returns:
+            list[Dict[str, Any]]: The content for the message for all content items.
+        """
+        return [
+            RemoteInferenceEngine._get_content_for_message_content_item(item)
+            for item in message.content_items
+        ]
+
+    @staticmethod
+    def _get_content_for_message_content_item(
+        item: ContentItem,
+    ) -> dict[str, Any]:
+        """Returns the content for a message content item.
+
+        Args:
+            item: The message content item to get the content for.
+
+        Returns:
             Dict[str, Any]: The content for the message.
         """
-        if message.type == Type.TEXT:
-            return {_TYPE_KEY: Type.TEXT.value, _TEXT_KEY: (message.content or "")}
-        elif not message.is_image():
-            raise ValueError(f"Unsupported message type: {message.type}")
+        if item.type == Type.TEXT:
+            return {_TYPE_KEY: Type.TEXT.value, _TEXT_KEY: (item.content or "")}
+        elif not item.is_image():
+            raise ValueError(f"Unsupported message type: {item.type}")
 
-        if not message.binary and message.type != Type.IMAGE_URL:
-            message = load_image_bytes_to_message(message)
+        if not item.binary and item.type != Type.IMAGE_URL:
+            item = load_image_bytes_to_content_item(item)
 
-        if message.binary:
-            b64_image = base64encode_image_bytes(message, add_mime_prefix=True)
+        if item.binary:
+            b64_image = base64encode_image_bytes(item, add_mime_prefix=True)
             return {
                 _TYPE_KEY: Type.IMAGE_URL.value,
                 _IMAGE_URL_KEY: {_URL_KEY: b64_image},
             }
 
         assert (
-            message.type == Type.IMAGE_URL
-        ), f"Unexpected message type: {message.type}. Must be a code bug."
+            item.type == Type.IMAGE_URL
+        ), f"Unexpected message type: {item.type}. Must be a code bug."
         return {
             _TYPE_KEY: Type.IMAGE_URL.value,
-            _IMAGE_URL_KEY: {message.content or ""},
+            _IMAGE_URL_KEY: {_URL_KEY: item.content or ""},
         }
 
     @staticmethod
@@ -113,15 +146,18 @@ class RemoteInferenceEngine(BaseInferenceEngine):
                 _ROLE_KEY: messages[idx].role.value,
             }
             group_size = end_idx - idx
-            if group_size == 1 and messages[idx].is_text():
+            if (
+                group_size == 1
+                and messages[idx].contains_single_text_content_item_only()
+            ):
                 # Set "content" to a primitive string value, which is the common
                 # convention for text-only models.
-                item[_CONTENT_KEY] = messages[idx].content
+                item[_CONTENT_KEY] = messages[idx].text_content_items[0].content
             else:
                 # Set "content" to be a list of dictionaries for more complex cases.
                 content_list = []
                 while idx < end_idx:
-                    content_list.append(
+                    content_list.extend(
                         RemoteInferenceEngine._get_content_for_message(messages[idx])
                     )
                     idx += 1
@@ -150,7 +186,7 @@ class RemoteInferenceEngine(BaseInferenceEngine):
             "model": self._model,
             "messages": [
                 {
-                    _CONTENT_KEY: [self._get_content_for_message(message)],
+                    _CONTENT_KEY: self._get_content_for_message(message),
                     _ROLE_KEY: message.role.value,
                 }
                 for message in conversation.messages
@@ -227,7 +263,6 @@ class RemoteInferenceEngine(BaseInferenceEngine):
                 Message(
                     content=message[_CONTENT_KEY],
                     role=Role(message[_ROLE_KEY]),
-                    type=Type.TEXT,
                 ),
             ],
             metadata=original_conversation.metadata,
@@ -284,6 +319,7 @@ class RemoteInferenceEngine(BaseInferenceEngine):
             )
             headers = self._get_request_headers(inference_config.remote_params)
             retries = 0
+            failure_reason = None
             # Retry the request if it fails.
             for _ in range(remote_params.max_retries + 1):
                 async with session.post(
@@ -308,10 +344,16 @@ class RemoteInferenceEngine(BaseInferenceEngine):
                         await asyncio.sleep(remote_params.politeness_policy)
                         return result
                     else:
+                        failure_reason = (
+                            response_json.get("error").get("message")
+                            if response_json and response_json.get("error")
+                            else None
+                        )
                         retries += 1
                         await asyncio.sleep(remote_params.politeness_policy)
             raise RuntimeError(
-                f"Failed to query API after {remote_params.max_retries} retries."
+                f"Failed to query API after {remote_params.max_retries} retries. "
+                + (f"Reason: {failure_reason}" if failure_reason else "")
             )
 
     async def _infer(
@@ -414,3 +456,489 @@ class RemoteInferenceEngine(BaseInferenceEngine):
             "temperature",
             "top_p",
         }
+
+    #
+    # Batch inference
+    #
+    def infer_batch(
+        self,
+        conversations: list[Conversation],
+        inference_config: InferenceConfig,
+    ) -> str:
+        """Creates a new batch inference job.
+
+        Args:
+            conversations: List of conversations to process in batch
+            inference_config: Parameters for inference
+
+        Returns:
+            str: The batch job ID
+
+        Raises:
+            ValueError: If remote_params is not provided in inference_config
+        """
+        if not inference_config.remote_params:
+            raise ValueError("Remote params must be provided in inference_config.")
+
+        return safe_asyncio_run(
+            self._create_batch(conversations, inference_config.generation)
+        )
+
+    def get_batch_status(
+        self,
+        batch_id: str,
+    ) -> BatchInfo:
+        """Gets the status of a batch inference job.
+
+        Args:
+            batch_id: The batch job ID
+
+        Returns:
+            BatchInfo: Current status of the batch job
+        """
+        return safe_asyncio_run(self._get_batch_status(batch_id))
+
+    def list_batches(
+        self,
+        after: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> BatchListResponse:
+        """Lists batch jobs.
+
+        Args:
+            after: Cursor for pagination (batch ID to start after)
+            limit: Maximum number of batches to return (1-100)
+
+        Returns:
+            BatchListResponse: List of batch jobs
+        """
+        return safe_asyncio_run(
+            self._list_batches(
+                after=after,
+                limit=limit,
+            )
+        )
+
+    def get_batch_results(
+        self,
+        batch_id: str,
+        conversations: list[Conversation],
+    ) -> list[Conversation]:
+        """Gets the results of a completed batch job.
+
+        Args:
+            batch_id: The batch job ID
+            conversations: Original conversations used to create the batch
+
+        Returns:
+            List[Conversation]: The processed conversations with responses
+
+        Raises:
+            RuntimeError: If the batch failed or has not completed
+        """
+        return safe_asyncio_run(
+            self._get_batch_results_with_mapping(batch_id, conversations)
+        )
+
+    async def _upload_batch_file(
+        self,
+        batch_requests: list[dict],
+    ) -> str:
+        """Uploads a JSONL file containing batch requests.
+
+        Args:
+            batch_requests: List of request objects to include in the batch
+
+        Returns:
+            str: The uploaded file ID
+        """
+        # Create temporary JSONL file
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".jsonl", delete=False
+        ) as tmp:
+            with jsonlines.Writer(tmp) as writer:
+                for request in batch_requests:
+                    writer.write(request)
+            tmp_path = tmp.name
+
+        try:
+            # Upload the file
+            connector = aiohttp.TCPConnector(limit=self._remote_params.num_workers)
+            async with aiohttp.ClientSession(connector=connector) as session:
+                headers = self._get_request_headers(self._remote_params)
+
+                # Create form data with file
+                form = aiohttp.FormData()
+                async with aiofiles.open(tmp_path, "rb") as f:
+                    file_data = await f.read()
+                    form.add_field("file", file_data, filename="batch_requests.jsonl")
+                form.add_field("purpose", _BATCH_PURPOSE)
+
+                async with session.post(
+                    f"{self._remote_params.api_url}/files",
+                    data=form,
+                    headers=headers,
+                ) as response:
+                    if response.status != 200:
+                        raise RuntimeError(
+                            f"Failed to upload batch file: {await response.text()}"
+                        )
+                    data = await response.json()
+                    return data["id"]
+        finally:
+            # Clean up temporary file
+            Path(tmp_path).unlink()
+
+    async def _create_batch(
+        self,
+        conversations: list[Conversation],
+        generation_params: GenerationParams,
+    ) -> str:
+        """Creates a new batch job.
+
+        Args:
+            conversations: List of conversations to process in batch
+            generation_params: Generation parameters
+
+        Returns:
+            str: The batch job ID
+        """
+        # Prepare batch requests
+        batch_requests = []
+        for i, conv in enumerate(conversations):
+            api_input = self._convert_conversation_to_api_input(conv, generation_params)
+            batch_requests.append(
+                {
+                    "custom_id": f"request-{i}",
+                    "method": "POST",
+                    "url": _BATCH_ENDPOINT,
+                    "body": api_input,
+                }
+            )
+
+        # Upload batch file
+        file_id = await self._upload_batch_file(batch_requests)
+
+        # Create batch
+        connector = aiohttp.TCPConnector(limit=self._remote_params.num_workers)
+        async with aiohttp.ClientSession(connector=connector) as session:
+            headers = self._get_request_headers(self._remote_params)
+            async with session.post(
+                f"{self._remote_params.api_url}/batches",
+                json={
+                    "input_file_id": file_id,
+                    "endpoint": _BATCH_ENDPOINT,
+                    "batch_completion_window": (
+                        self._remote_params.batch_completion_window
+                    ),
+                },
+                headers=headers,
+            ) as response:
+                if response.status != 200:
+                    raise RuntimeError(
+                        f"Failed to create batch: {await response.text()}"
+                    )
+                data = await response.json()
+                return data["id"]
+
+    async def _get_batch_status(
+        self,
+        batch_id: str,
+    ) -> BatchInfo:
+        """Gets the status of a batch job.
+
+        Args:
+            batch_id: ID of the batch job
+
+        Returns:
+            BatchInfo: Current status of the batch job
+        """
+        connector = aiohttp.TCPConnector(limit=self._remote_params.num_workers)
+        async with aiohttp.ClientSession(connector=connector) as session:
+            headers = self._get_request_headers(self._remote_params)
+            async with session.get(
+                f"{self._remote_params.api_url}/batches/{batch_id}",
+                headers=headers,
+            ) as response:
+                if response.status != 200:
+                    raise RuntimeError(
+                        f"Failed to get batch status: {await response.text()}"
+                    )
+                data = await response.json()
+                return BatchInfo.from_api_response(data)
+
+    async def _list_batches(
+        self,
+        after: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> BatchListResponse:
+        """Lists batch jobs.
+
+        Args:
+            after: Cursor for pagination (batch ID to start after)
+            limit: Maximum number of batches to return (1-100)
+
+        Returns:
+            BatchListResponse: List of batch jobs
+        """
+        connector = aiohttp.TCPConnector(limit=self._remote_params.num_workers)
+        async with aiohttp.ClientSession(connector=connector) as session:
+            headers = self._get_request_headers(self._remote_params)
+
+            params = {}
+            if after:
+                params["after"] = after
+            if limit:
+                params["limit"] = str(limit)
+
+            async with session.get(
+                f"{self._remote_params.api_url}/batches",
+                headers=headers,
+                params=params,
+            ) as response:
+                if response.status != 200:
+                    raise RuntimeError(
+                        f"Failed to list batches: {await response.text()}"
+                    )
+                data = await response.json()
+
+                batches = [
+                    BatchInfo.from_api_response(batch_data)
+                    for batch_data in data["data"]
+                ]
+
+                return BatchListResponse(
+                    batches=batches,
+                    first_id=data.get("first_id"),
+                    last_id=data.get("last_id"),
+                    has_more=data.get("has_more", False),
+                )
+
+    async def _get_batch_results_with_mapping(
+        self,
+        batch_id: str,
+        conversations: list[Conversation],
+    ) -> list[Conversation]:
+        """Gets the results of a completed batch job and maps them to conversations.
+
+        Args:
+            batch_id: ID of the batch job
+            conversations: Original conversations used to create the batch
+
+        Returns:
+            List[Conversation]: The processed conversations with responses
+
+        Raises:
+            RuntimeError: If batch status is not completed or if there are errors
+        """
+        # Get batch status first
+        batch_info = await self._get_batch_status(batch_id)
+
+        if not batch_info.is_terminal:
+            raise RuntimeError(
+                f"Batch is not in terminal state. Status: {batch_info.status}"
+            )
+
+        if batch_info.has_errors:
+            # Download error file if there are failed requests
+            if batch_info.error_file_id:
+                error_content = await self._download_file(batch_info.error_file_id)
+                raise RuntimeError(f"Batch has failed requests: {error_content}")
+            raise RuntimeError(f"Batch failed with error: {batch_info.error}")
+
+        # Download results file
+        if not batch_info.output_file_id:
+            raise RuntimeError("No output file available")
+
+        results_content = await self._download_file(batch_info.output_file_id)
+
+        # Parse results
+        processed_conversations = []
+        for line, conv in zip(results_content.splitlines(), conversations):
+            result = json.loads(line)
+            if result.get("error"):
+                raise RuntimeError(f"Batch request failed: {result['error']}")
+            processed_conv = self._convert_api_output_to_conversation(
+                result["response"]["body"], conv
+            )
+            processed_conversations.append(processed_conv)
+        return processed_conversations
+
+    #
+    # File operations
+    #
+    def list_files(
+        self,
+        purpose: Optional[str] = None,
+        limit: Optional[int] = None,
+        order: str = "desc",
+        after: Optional[str] = None,
+    ) -> FileListResponse:
+        """Lists files."""
+        return safe_asyncio_run(
+            self._list_files(
+                purpose=purpose,
+                limit=limit,
+                order=order,
+                after=after,
+            )
+        )
+
+    def get_file(
+        self,
+        file_id: str,
+    ) -> FileInfo:
+        """Gets information about a file."""
+        return safe_asyncio_run(self._get_file(file_id))
+
+    def delete_file(
+        self,
+        file_id: str,
+    ) -> bool:
+        """Deletes a file."""
+        return safe_asyncio_run(self._delete_file(file_id))
+
+    def get_file_content(
+        self,
+        file_id: str,
+    ) -> str:
+        """Gets a file's content."""
+        return safe_asyncio_run(self._download_file(file_id))
+
+    async def _list_files(
+        self,
+        purpose: Optional[str] = None,
+        limit: Optional[int] = None,
+        order: str = "desc",
+        after: Optional[str] = None,
+    ) -> FileListResponse:
+        """Lists files.
+
+        Args:
+            purpose: Only return files with this purpose
+            limit: Maximum number of files to return (1-10000)
+            order: Sort order (asc or desc)
+            after: Cursor for pagination
+
+        Returns:
+            FileListResponse: List of files
+        """
+        connector = aiohttp.TCPConnector(limit=self._remote_params.num_workers)
+        async with aiohttp.ClientSession(connector=connector) as session:
+            headers = self._get_request_headers(self._remote_params)
+
+            params = {"order": order}
+            if purpose:
+                params["purpose"] = purpose
+            if limit:
+                params["limit"] = str(limit)
+            if after:
+                params["after"] = after
+
+            async with session.get(
+                f"{self._remote_params.api_url}/files",
+                headers=headers,
+                params=params,
+            ) as response:
+                if response.status != 200:
+                    raise RuntimeError(f"Failed to list files: {await response.text()}")
+                data = await response.json()
+
+                files = [
+                    FileInfo(
+                        id=file["id"],
+                        filename=file["filename"],
+                        bytes=file["bytes"],
+                        created_at=file["created_at"],
+                        purpose=file["purpose"],
+                    )
+                    for file in data["data"]
+                ]
+
+                return FileListResponse(
+                    files=files, has_more=len(files) == limit if limit else False
+                )
+
+    async def _get_file(
+        self,
+        file_id: str,
+    ) -> FileInfo:
+        """Gets information about a file.
+
+        Args:
+            file_id: ID of the file
+            remote_params: Remote API parameters
+
+        Returns:
+            FileInfo: File information
+        """
+        connector = aiohttp.TCPConnector(limit=self._remote_params.num_workers)
+        async with aiohttp.ClientSession(connector=connector) as session:
+            headers = self._get_request_headers(self._remote_params)
+            async with session.get(
+                f"{self._remote_params.api_url}/files/{file_id}",
+                headers=headers,
+            ) as response:
+                if response.status != 200:
+                    raise RuntimeError(f"Failed to get file: {await response.text()}")
+                data = await response.json()
+                return FileInfo(
+                    id=data["id"],
+                    filename=data["filename"],
+                    bytes=data["bytes"],
+                    created_at=data["created_at"],
+                    purpose=data["purpose"],
+                )
+
+    async def _delete_file(
+        self,
+        file_id: str,
+    ) -> bool:
+        """Deletes a file.
+
+        Args:
+            file_id: ID of the file to delete
+            remote_params: Remote API parameters
+
+        Returns:
+            bool: True if deletion was successful
+        """
+        connector = aiohttp.TCPConnector(limit=self._remote_params.num_workers)
+        async with aiohttp.ClientSession(connector=connector) as session:
+            headers = self._get_request_headers(self._remote_params)
+            async with session.delete(
+                f"{self._remote_params.api_url}/files/{file_id}",
+                headers=headers,
+            ) as response:
+                if response.status != 200:
+                    raise RuntimeError(
+                        f"Failed to delete file: {await response.text()}"
+                    )
+                data = await response.json()
+                return data.get("deleted", False)
+
+    async def _download_file(
+        self,
+        file_id: str,
+    ) -> str:
+        """Downloads a file's content.
+
+        Args:
+            file_id: ID of the file to download
+            remote_params: Remote API parameters
+
+        Returns:
+            str: The file content
+        """
+        connector = aiohttp.TCPConnector(limit=self._remote_params.num_workers)
+        async with aiohttp.ClientSession(connector=connector) as session:
+            headers = self._get_request_headers(self._remote_params)
+            async with session.get(
+                f"{self._remote_params.api_url}/files/{file_id}/content",
+                headers=headers,
+            ) as response:
+                if response.status != 200:
+                    raise RuntimeError(
+                        f"Failed to download file: {await response.text()}"
+                    )
+                return await response.text()
