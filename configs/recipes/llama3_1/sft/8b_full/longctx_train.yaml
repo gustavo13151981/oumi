@@ -7,7 +7,7 @@
 #     --num_processes 8 \
 #     --dynamo_backend inductor \
 #     --mixed_precision no \
-#     -m oumi.train \
+#     -m oumi train \
 #     -c "configs/recipes/llama3_1/sft/8b_full/longctx_train.yaml"
 
 model:
@@ -20,7 +20,7 @@ model:
   enable_liger_kernel: True # Helps reduce required vram
 
 training:
-  trainer_type: TRL_SFT
+  trainer_type: "TRL_SFT"
   learning_rate: 2.0e-05
   output_dir: "output/llama8b.longctx.fft"
 
