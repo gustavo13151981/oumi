@@ -94,8 +94,7 @@ TRAIN_DATASETS="--data.train.datasets
 # don't need to be modified during experimentation.
 SHARED_TRAINING_PARAMS="--data.train.use_async_dataset true
 --training.max_steps ${MAX_STEPS}
---training.save_steps 0
---training.save_final_model false
+--training.save_final_model true
 --training.dataloader_main_process_only false
 --training.dataloader_num_workers 8
 --training.log_model_summary false
