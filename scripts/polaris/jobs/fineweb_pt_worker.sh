@@ -60,7 +60,8 @@ if ! (echo "${ALLOWED_TRAINING_MODES[@]}" | grep -q -w "${TRAINING_MODE}"); then
     helpFunction
 fi
 
-MAX_STEPS=20
+# 16,777,216 tok/step, aim for 350B tokens
+MAX_STEPS=21000
 if "${ENABLE_PYTORCH_PROFILER}"; then
     # Use a smaller number of steps with Profiler to keep traces usable.
     MAX_STEPS=6
