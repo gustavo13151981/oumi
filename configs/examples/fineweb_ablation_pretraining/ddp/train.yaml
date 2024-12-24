@@ -38,8 +38,8 @@ training:
 
   lr_scheduler_type: "cosine_with_min_lr"
   lr_scheduler_kwargs:
-    min_lr: 1.2e-4
-  learning_rate: 1.2e-3
+    min_lr: 1.2e-4 # 4x that in paper since we have 8x more GPUs
+  learning_rate: 1.2e-3 # 4x that in paper since we have 8x more GPUs
   warmup_steps: 500
   weight_decay: 0.1
 
