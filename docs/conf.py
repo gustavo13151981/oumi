@@ -26,26 +26,31 @@ main_doc = "index"
 extensions = [
     "myst_nb",  # implicitly enables myst_parser
     "sphinx_copybutton",
-    "sphinx_rtd_theme",
     "sphinx_design",
+    "sphinx_rtd_theme",
+    "sphinx_term.termynal",
     "sphinx.ext.autodoc",
     "sphinx.ext.coverage",
+    "sphinx.ext.doctest",
     "sphinx.ext.duration",
+    "sphinx.ext.extlinks",
     "sphinx.ext.intersphinx",
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
     "sphinxcontrib.autoyaml",
     "sphinxcontrib.bibtex",
+    "sphinxcontrib.mermaid",
     "sphinxcontrib.typer",
-    "sphinx_term.termynal",
 ]
 
 source_suffix = {
     ".rst": "restructuredtext",
 }
-
 nb_execution_mode = "off"
+nitpick = True
+myst_heading_anchors = 5
 
+napoleon_use_admonition_for_examples = False
 napoleon_include_special_with_doc = True
 napoleon_numpy_docstring = False
 napoleon_google_docstring = True
@@ -67,7 +72,13 @@ coverage_statistics_to_report = True
 coverage_show_missing_items = True
 
 templates_path = ["_templates"]
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+exclude_patterns = [
+    "_build",
+    "Thumbs.db",
+    ".DS_Store",
+    "api/modules.rst",
+    "api/oumi.models.experimental.*",
+]
 
 # Importing these modules causes errors in the docs build
 autodoc_mock_imports = ["oumi.models.experimental"]
@@ -155,3 +166,6 @@ suppress_warnings = [
 # html_additional_pages = {
 #     "interactive_chat": "interactive_chat.html",
 # }
+extlinks = {
+    "gh": ("https://github.com/oumi-ai/oumi/blob/main/%s", None),
+}
