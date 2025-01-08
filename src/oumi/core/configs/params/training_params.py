@@ -581,6 +581,7 @@ class TrainingParams(BaseParams):
         dispatch_batches = self.dataloader_main_process_only
 
         result = config_class(
+            do_train=True,
             gradient_accumulation_steps=self.gradient_accumulation_steps,
             log_level=self.dep_log_level,
             logging_dir=self.logging_dir,

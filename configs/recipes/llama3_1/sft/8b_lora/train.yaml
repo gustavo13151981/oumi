@@ -1,57 +1,74 @@
-# Lora config for Llama 8B.
-# Borrows param values from:
-# https://github.com/pytorch/torchtune/blob/main/recipes/configs/llama3_1/8B_lora.yaml
+# Emre's Lora config for Llama 8B.
 
 model:
-  model_name: "meta-llama/Meta-Llama-3.1-8B-Instruct"
-  model_max_length: 8192
-  torch_dtype_str: "bfloat16"
+  model_name: "meta-llama/Llama-3.1-8B-Instruct"
+  model_max_length: 4096
   attn_implementation: "sdpa"
-  load_pretrained_weights: True
   trust_remote_code: True
-  # Enabling Liger slows down training.
-  enable_liger_kernel: False
 
 data:
   train:
     datasets:
-      - dataset_name: "yahma/alpaca-cleaned" # 51,760 examples
-    target_col: "prompt"
+      - dataset_name: "text_sft_jsonl"
+        # 308,522 examples
+        dataset_path: "../experiment7-snips_sgd_masking_toolace-train.jsonl"
+        # 311,639 examples
+        # dataset_path: "experiment7-snips_sgd_masking_toolace.json"
+        # 1k examples
+        # dataset_path: "experiment7-snips_sgd_masking_toolace-1k.jsonl"
+    target_col: "text"
+    use_async_dataset: True
+  validation:
+    datasets:
+      - dataset_name: "text_sft_jsonl"
+        # 3117 examples
+        dataset_path: "../experiment7-snips_sgd_masking_toolace-val.jsonl"
+    target_col: "text"
     use_async_dataset: True
 
 training:
   trainer_type: "TRL_SFT"
-  use_peft: True
-  save_steps: 50
-  num_train_epochs: 1
-  per_device_train_batch_size: 2
-  gradient_accumulation_steps: 32
+  num_train_epochs: 3
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 2
 
-  enable_gradient_checkpointing: False
+  per_device_eval_batch_size: 1
+  eval_strategy: steps
+  eval_steps: 500
+  try_resume_from_last_checkpoint: True
+
+  mixed_precision_dtype: "BF16"
+  # optimizer: "adamw_torch"
+  optimizer: "adamw_torch_fused"
+  learning_rate: 1.0e-04
+  lr_scheduler_type: "cosine"
+  warmup_ratio: 0.1
+  use_peft: True
+
+  enable_gradient_checkpointing: True
   gradient_checkpointing_kwargs:
     use_reentrant: False
   ddp_find_unused_parameters: False
-  optimizer: "adamw_torch_fused"
-  learning_rate: 3.0e-04
-  lr_scheduler_type: "cosine"
-  warmup_steps: 100
-  weight_decay: 0.01
-  compile: False
-
-  dataloader_num_workers: "auto"
+  # dataloader_num_workers: 16
   dataloader_prefetch_factor: 32
-
-  logging_steps: 100
-  log_model_summary: False
   empty_device_cache_steps: 50
-  output_dir: "output/llama8b.lora"
-  include_performance_metrics: True
+  save_epoch: True
+  save_steps: 500
+  logging_steps: 10
   enable_wandb: True
+  run_name: "Llama-3.1-8B-Instruct-experiment7"
+  include_performance_metrics: True
+  output_dir: "/gcs_dir/wizeng/models/20210107_emre_8b_allloralayers"
 
 peft:
-  lora_r: 8
-  lora_alpha: 16
+  lora_r: 16
+  lora_alpha: 32
   lora_dropout: 0.0
   lora_target_modules:
-    - "q_proj"
-    - "v_proj"
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
