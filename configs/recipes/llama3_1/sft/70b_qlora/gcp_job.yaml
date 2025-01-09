@@ -5,9 +5,10 @@ name: llama70b-qlora-fsdp
 
 resources:
   cloud: gcp
-  accelerators: "A100:8"
+  accelerators: "A100-80GB:8"
   use_spot: true
   disk_size: 1000 # Disk size in GBs
+  region: us-east4
 
 working_dir: .
 
@@ -17,10 +18,17 @@ file_mounts:
   # This is created on the local machine by running `huggingface-cli login`.
   ~/.cache/huggingface/token: ~/.cache/huggingface/token
 
+storage_mounts:
+  /gcs_dir:
+    source: gs://oumi-dev-us-central1
+    store: gcs
+
 envs:
   WANDB_PROJECT: oumi-train
   OUMI_RUN_NAME: llama70b.qlora.fsdp
   ACCELERATE_LOG_LEVEL: info
+  # WANDB_RESUME: must
+  # WANDB_RUN_ID: kneoomon
   # https://github.com/huggingface/tokenizers/issues/899#issuecomment-1027739758
   TOKENIZERS_PARALLELISM: false
 
@@ -29,7 +37,7 @@ setup: |
   pip install uv && uv pip install '.[gpu]' hf_transfer
   # Install model from HF Hub. This tool increases download speed compared to
   # downloading the model during training.
-  HF_HUB_ENABLE_HF_TRANSFER=1 huggingface-cli download meta-llama/Meta-Llama-3.1-70B-Instruct --exclude original/*
+  HF_HUB_ENABLE_HF_TRANSFER=1 huggingface-cli download meta-llama/Llama-3.3-70B-Instruct --exclude original/*
 
 run: |
   set -e  # Exit if any command failed.
@@ -38,7 +46,6 @@ run: |
   set -x
   oumi distributed torchrun \
       -m oumi train \
-      -c configs/recipes/llama3_1/sft/70b_qlora/train.yaml \
-      --training.run_name "${OUMI_RUN_NAME}.${SKYPILOT_TASK_ID}"
+      -c configs/recipes/llama3_1/sft/70b_qlora/train.yaml
 
   echo "Node ${SKYPILOT_NODE_RANK} is all done!"
