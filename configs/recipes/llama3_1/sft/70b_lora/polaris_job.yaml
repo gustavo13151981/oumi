@@ -1,11 +1,11 @@
 # Config to LoRA tune Llama 3.1 70B Instruct on 2 Polaris nodes.
 # Example command:
-# oumi launch up -c configs/recipes/llama3_1/sft/70b_lora/polaris_job.yaml --cluster preemptable.$ALCF_USER --user $ALCF_USER
+# oumi launch up -c configs/recipes/llama3_1/sft/70b_lora/polaris_job.yaml --cluster debug-scaling.$ALCF_USER --user $ALCF_USER
 name: llama70b-lora
 # NOTE: Replace with your username.
 user: your_username
 
-num_nodes: 2
+num_nodes: 10
 resources:
   cloud: polaris
 
@@ -17,7 +17,7 @@ working_dir: .
 # PBS directives.
 setup: |
   #PBS -l place=scatter
-  #PBS -l walltime=02:00:00
+  #PBS -l walltime=01:00:00
   #PBS -l filesystems=home:eagle
   #PBS -A community_ai
   #PBS -o /eagle/community_ai/jobs/logs/

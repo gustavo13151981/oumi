@@ -5,6 +5,8 @@ model:
   model_max_length: 4096
   attn_implementation: "sdpa"
   trust_remote_code: True
+  tokenizer_pad_token: "<|finetune_right_pad_id|>"
+  enable_liger_kernel: True
 
 data:
   train:
@@ -49,6 +51,7 @@ training:
   gradient_checkpointing_kwargs:
     use_reentrant: False
   ddp_find_unused_parameters: False
+  dataloader_num_workers: "auto"
   # dataloader_num_workers: 16
   dataloader_prefetch_factor: 32
   empty_device_cache_steps: 50

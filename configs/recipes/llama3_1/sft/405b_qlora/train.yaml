@@ -4,7 +4,7 @@
 
 model:
   model_name: "meta-llama/Meta-Llama-3.1-405B-Instruct"
-  model_max_length: 2048
+  model_max_length: 4096
   torch_dtype_str: "bfloat16"
   attn_implementation: "sdpa"
   load_pretrained_weights: True
@@ -15,17 +15,37 @@ model:
 data:
   train:
     datasets:
-      - dataset_name: "yahma/alpaca-cleaned" # 51,760 examples
-    target_col: "prompt"
+      - dataset_name: "text_sft_jsonl"
+        # 308,522 examples
+        dataset_path: "/home/wizeng/experiment7-snips_sgd_masking_toolace-train.jsonl"
+        # 311,639 examples
+        # dataset_path: "experiment7-snips_sgd_masking_toolace.json"
+        # 1k examples
+        # dataset_path: "experiment7-snips_sgd_masking_toolace-1k.jsonl"
+    target_col: "text"
+    use_async_dataset: True
+  validation:
+    datasets:
+      - dataset_name: "text_sft_jsonl"
+        # 3117 examples
+        dataset_path: "/home/wizeng/experiment7-snips_sgd_masking_toolace-val.jsonl"
+    target_col: "text"
     use_async_dataset: True
 
 training:
   trainer_type: "TRL_SFT"
   use_peft: True
   save_steps: 100
-  num_train_epochs: 1
+  num_train_epochs: 3
   per_device_train_batch_size: 4
   gradient_accumulation_steps: 1
+
+  per_device_eval_batch_size: 1
+  eval_strategy: steps
+  eval_steps: 500
+  try_resume_from_last_checkpoint: True
+
+  mixed_precision_dtype: "BF16"
 
   enable_gradient_checkpointing: True
   gradient_checkpointing_kwargs:
@@ -33,8 +53,7 @@ training:
   ddp_find_unused_parameters: False
   optimizer: "adamw_torch_fused"
   learning_rate: 3.0e-04
-  warmup_steps: 100
-  weight_decay: 0.01
+  warmup_ratio: 0.1
   compile: False
 
   dataloader_num_workers: "auto"
@@ -59,9 +78,13 @@ peft:
   lora_alpha: 32
   lora_dropout: 0.0
   lora_target_modules:
-    - "q_proj"
-    - "v_proj"
-    - "o_proj"
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
 
 fsdp:
   enable_fsdp: True

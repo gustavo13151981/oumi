@@ -121,7 +121,7 @@ export TOKENIZERS_PARALLELISM=false
 
 # Training params shared between the different training modes, and likely
 # don't need to be modified during experimentation.
-SHARED_TRAINING_PARAMS="--training.run_name 'polaris.llama${MODEL_SIZE}.${TRAINING_MODE}.${OUMI_JOBNUM}'
+SHARED_TRAINING_PARAMS="--training.run_name 'polaris.llama${MODEL_SIZE}.${TRAINING_MODE}.${OUMI_JOBNUM}.Llama-3.3-70B-Instruct-experiment7'
 --training.output_dir /eagle/community_ai/${USER}/runs/llama${MODEL_SIZE}.${TRAINING_MODE}.${OUMI_JOBNUM}
 ${OUMI_TELEMETRY_PARAMS}"
 
@@ -188,8 +188,8 @@ elif [ "$MODEL_SIZE" == "8b" ]; then
 elif [ "$MODEL_SIZE" == "70b" ]; then
     # Copy 70B weights from Eagle to local scratch.
     copyModelToLocalScratch \
-        "models--meta-llama--Meta-Llama-3.1-70B-Instruct" \
-        "945c8663693130f8be2ee66210e062158b2a9693"
+        "models--meta-llama--Llama-3.3-70B-Instruct" \
+        "6f6073b423013f6a7d4d9f39144961bfbfbc386b"
 
     if [ "$TRAINING_MODE" == "pretrain" ]; then
         echo "Llama 70B pretraining is currently not supported!"
