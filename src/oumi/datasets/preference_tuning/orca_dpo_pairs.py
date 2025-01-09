@@ -1,6 +1,4 @@
-from typing import Any, Dict
-
-from click import prompt
+from typing import Any
 
 from oumi.core.datasets.base_dpo_dataset import BaseExperimentalDpoDataset
 from oumi.core.types.conversation import Conversation, Message, Role
@@ -9,7 +7,9 @@ from oumi.core.types.conversation import Conversation, Message, Role
 class OrcaDpoPairsDataset(BaseExperimentalDpoDataset):
     """Dataset class for the Intel/orca_dpo_pairs dataset."""
 
-    def transform_preference(self, sample: Dict[str, Any]) -> Dict[str, Any]:
+    default_dataset = "Intel/orca_dpo_pairs"
+
+    def transform_preference(self, sample: dict[str, Any]) -> dict[str, Any]:
         """Transform the sample into the required format."""
         system_prompt = sample.get("system", "")
         question = sample["question"]
@@ -22,7 +22,7 @@ class OrcaDpoPairsDataset(BaseExperimentalDpoDataset):
         )
 
         return {
-            "prompt": prompt,
+            "prompt": question,
             "chosen": chosen_conversation,
             "rejected": rejected_conversation,
         }
