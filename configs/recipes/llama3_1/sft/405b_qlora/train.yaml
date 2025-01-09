@@ -17,7 +17,7 @@ data:
     datasets:
       - dataset_name: "text_sft_jsonl"
         # 308,522 examples
-        dataset_path: "/home/wizeng/experiment7-snips_sgd_masking_toolace-train.jsonl"
+        dataset_path: "/eagle/community_ai/wizeng/emre_training_data/experiment7-snips_sgd_masking_toolace-train.jsonl"
         # 311,639 examples
         # dataset_path: "experiment7-snips_sgd_masking_toolace.json"
         # 1k examples
@@ -28,7 +28,7 @@ data:
     datasets:
       - dataset_name: "text_sft_jsonl"
         # 3117 examples
-        dataset_path: "/home/wizeng/experiment7-snips_sgd_masking_toolace-val.jsonl"
+        dataset_path: "/eagle/community_ai/wizeng/emre_training_data/experiment7-snips_sgd_masking_toolace-val.jsonl"
     target_col: "text"
     use_async_dataset: True
 
