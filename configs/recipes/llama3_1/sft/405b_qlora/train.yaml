@@ -5,7 +5,6 @@
 model:
   model_name: "meta-llama/Meta-Llama-3.1-405B-Instruct"
   model_max_length: 4096
-  torch_dtype_str: "bfloat16"
   attn_implementation: "sdpa"
   load_pretrained_weights: True
   trust_remote_code: True
