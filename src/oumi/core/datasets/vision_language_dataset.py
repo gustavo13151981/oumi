@@ -7,7 +7,6 @@ import torch
 from PIL import Image
 from typing_extensions import override
 
-from oumi.builders.processors import build_processor
 from oumi.core.configs.internal.internal_model_config import (
     InternalFeatureFirstDimAction,
     InternalModelConfig,
@@ -78,6 +77,8 @@ class VisionLanguageSftDataset(BaseSftDataset, ABC):
     ) -> None:
         """Initializes a new instance of the VisionLanguageDataset class."""
         super().__init__(tokenizer=tokenizer, **kwargs)
+        # Importing these here to avoid circular dependencies
+        from oumi.builders.processors import build_processor
 
         if tokenizer is None:
             raise ValueError(
@@ -185,18 +186,6 @@ class VisionLanguageSftDataset(BaseSftDataset, ABC):
             inputs["labels"] = input_ids.clone()
         else:
             inputs["labels"] = copy.deepcopy(input_ids)
-
-        if self._text_col:
-            # `text_col` isn't really used for training for SFT datasets
-            # (only `input_ids` is used) but we're saving text prompts here
-            # for debugging purposes. FIXME Clean-up `text_col` usage.
-            if self._text_col in inputs.keys():
-                raise ValueError(
-                    f"target_col: '{self._text_col}' already exists "
-                    f"in dataset features: {sorted(list(inputs.keys()))}! "
-                    "Consider using a different value to resolve the name collision."
-                )
-            inputs[self._text_col] = [prompt]
 
         # Processors by default return a list of tensors for each key
         # We need to squeeze the first dimension so that it works with the data-loader
