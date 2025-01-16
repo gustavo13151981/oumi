@@ -333,6 +333,21 @@ def convert_to_list_of_tensors(values: list[T]) -> list[torch.Tensor]:
     )
 
 
+def convert_to_tensor(x: Any) -> torch.Tensor:
+    """Converts an array-like object into a torch tensor."""
+    if isinstance(x, torch.Tensor):
+        return x
+    elif isinstance(x, list):
+        return torch.from_numpy(np.asarray(x))
+    elif isinstance(x, np.ndarray):
+        return torch.from_numpy(x)
+
+    raise ValueError(
+        f"Unsupported type: {type(x)}. "
+        "Must be numpy array, torch tensor, or Python list."
+    )
+
+
 def _pad_sequences_impl(
     sequences: list[torch.Tensor], *, padding_value: float = 0
 ) -> torch.Tensor:
@@ -480,6 +495,11 @@ def get_shape_as_list(x: Any) -> list[int]:
         return list(x.shape)
 
     raise ValueError(f"Unsupported type: {type(x)}. Must be numpy array, torch tensor.")
+
+
+def compute_number_of_elements(x: Any) -> int:
+    """Computes total number of elements in a tensor or numpy array."""
+    return math.prod(get_shape_as_list(x))
 
 
 class _FreezeModelLayer:

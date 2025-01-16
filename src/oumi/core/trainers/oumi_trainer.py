@@ -46,7 +46,11 @@ from oumi.models.layers.ring_attention import (
 from oumi.performance.telemetry import TelemetryTracker
 from oumi.utils.io_utils import load_json, save_json
 from oumi.utils.logging import logger
-from oumi.utils.torch_utils import log_trainable_parameters
+from oumi.utils.torch_utils import (
+    compute_number_of_elements,
+    convert_to_tensor,
+    log_trainable_parameters,
+)
 
 torch.backends.cuda.matmul.allow_tf32 = True  # allow tf32 on matmul
 torch.backends.cudnn.allow_tf32 = True  # allow tf32 on cudnn
@@ -293,15 +297,19 @@ class Trainer(BaseTrainer):
 
                 # Count tokens on CPU.
                 with self._telemetry_block("computing tokens"):
-                    num_tokens = (
-                        batch["input_ids"].ne(self.tokenizer.pad_token_id).sum().item()
-                    )
+                    input_ids = convert_to_tensor(batch["input_ids"])
+                    if self.tokenizer.pad_token_id is not None:
+                        num_tokens = int(
+                            input_ids.ne(self.tokenizer.pad_token_id).sum().item()
+                        )
+                    else:
+                        num_tokens = compute_number_of_elements(input_ids)
                     self.state.total_tokens_seen += num_tokens
 
                 with self._telemetry_block("moving batch to device"):
                     if not self.is_using_fsdp and not self.is_using_ring_attention:
                         batch = {
-                            k: v.to(self.device, non_blocking=True)
+                            k: convert_to_tensor(v).to(self.device, non_blocking=True)
                             for k, v in batch.items()
                         }
 
