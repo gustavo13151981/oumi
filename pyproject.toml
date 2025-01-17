@@ -97,8 +97,6 @@ docs = [
     "sphinxcontrib-bibtex",    # Allows us to cite bibtex references in the docs
     "sphinxcontrib-mermaid",   # Enable mermaid diagrams in the docs
     "sphinxcontrib-typer",     # Allows us to include typer CLI in the docs
-    "sphinxcontrib-autoyaml",  # Allows us to include yaml in the docs
-    "sphinx-design",           # Allows us to include tabs in the docs
 ]
 
 # Dependencies that require a GPU to install

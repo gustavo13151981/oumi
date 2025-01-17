@@ -6,9 +6,10 @@ set -xe
 
 # HuggingFace model with huggingface trainer
 time accelerate launch \
-    --config_file configs/accelerate/llama8b.fsdp.yaml \
-    --use_fsdp \
-    --num_processes 8 \
+    --num_machines 1 \
+    --machine_rank 0 \
+    --num_processes 1 \
+    --gpu_ids 0 \
     --dynamo_backend inductor \
     --mixed_precision no \
     -m oumi train \
