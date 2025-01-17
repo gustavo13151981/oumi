@@ -2,7 +2,7 @@
 
 # Model automatically uses weight tying
 model:
-  model_name: "gpt2" # 124M params
+  model_name: "openai-community/gpt2" #  "gpt2" # 124M params
   model_max_length: 1024
   torch_dtype_str: "bfloat16"
   tokenizer_pad_token: "<|endoftext|>"
