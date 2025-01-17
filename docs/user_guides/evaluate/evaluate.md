@@ -5,60 +5,75 @@
 :caption: Evaluation
 :hidden:
 
-mcqa
-generative
-custom_lm_harness
+evaluation_config
+standardized_benchmarks
+generative_benchmarks
+leaderboards
 ```
 
 ## Overview
 
-Oumi provides comprehensive evaluation capabilities through multiple benchmark types and frameworks, allowing you to assess language models across various dimensions and tasks. The framework is designed for reproducibility and extensibility, featuring batch processing optimization, flexible configuration system, and comprehensive experiment tracking through Weights & Biases integration.
+Oumi offers a flexible evaluation framework designed to assess and benchmark Large Language Models (LLMs). The framework allows researchers, developers, and organizations to easily evaluate the performance of their models across a variety of benchmarks, compare results, and track progress in a standardized way.
 
-All evaluations are automatically logged and versioned, capturing model configurations, evaluation parameters, and environmental details to ensure reproducible results. The framework supports both local execution and distributed evaluation for larger experiments.
+Key features include:
+- **Seamless Setup**: Single-step installation for all packages and dependencies, ensuring quick and conflict-free setup.
+- **Consistency**: Platform ensures deterministic execution and [reproducible results](/user_guides/evaluate/evaluate.md#results-and-logging). Reproducibility is achieved by automatically logging and versioning all environmental parameters and experimental configurations.
+- **Diversity**: Offering a [wide range of benchmarks](/user_guides/evaluate/evaluate.md#benchmark-types) across domains. Oumi enables a comprehensive evaluation of LLMs on tasks ranging from natural language understanding to creative text generation, providing holistic assessment across various real-world applications.
+- **Scalability**: Supports [multi-GPU and multi-node evaluations](/user_guides/infer/infer.md#distributed-inference), along with the ability to shard large models across multiple GPUs/nodes. Incorporates batch processing optimizations to effectively manage memory constraints and ensure efficient resource utilization.
+<!-- Consider adding later:
+**Extensibility**: Designed with simplicity and modularity in mind, Oumi offers a flexible framework that empowers the community to easily contribute new benchmarks and metrics. This facilitates continuous improvement and ensures the platform evolves alongside emerging research and industry trends.
+-->
 
-### Benchmark Types
+Our benchmark diversity is enabled through seamless integration with leading platforms such as [LM Evaluation Harness](https://github.com/EleutherAI/lm-evaluation-harness), [AlpacaEval](https://github.com/tatsu-lab/alpaca_eval), and (WIP) [MT-Bench](https://github.com/lm-sys/FastChat/tree/main/fastchat/llm_judge).
+
+
+## Benchmark Types
 
 | Type | Description | When to Use | Get Started |
 |------|-------------|-------------|-------------|
-| **Generative Benchmarks** | Evaluate model's ability to generate contextual responses | Best for assessing instruction-following capabilities, response quality, and multi-turn dialogue performance | See {doc}`Generative Evaluation page </user_guides/evaluate/generative>` |
-| **Multiple Choice (LM-Eval)** | Assess knowledge and reasoning through structured questions | Ideal for measuring factual knowledge, reasoning capabilities, and performance on established benchmarks | See [Basic Configuration](#basic-configuration) and [Supported Tasks](#supported-tasks) |
-| **LLM as Judge** | Qualitative assessment using LLMs | Perfect for subjective evaluation of response quality, safety, and alignment with custom criteria | See {doc}`Judge documentation </user_guides/judge/judge>` |
+| **Standardized Benchmarks** | Assess model knowledge and reasoning capability through structured questions with predefined answers | Ideal for measuring factual knowledge, reasoning capabilities, and performance on established benchmarks | See {doc}`Standardized benchmarks page </user_guides/evaluate/standardized_benchmarks>` |
+| **Open-Ended Generation** | Evaluate model's ability to effectively respond to open-ended questions | Best for assessing instruction-following capabilities and response quality | See {doc}`Generative benchmarks page </user_guides/evaluate/generative_benchmarks>` |
+| **LLM as Judge** | Automated assessment using LLMs | Suitable for automated evaluation of response quality against predefined (helpfulness, honesty, safety) or custom criteria | See {doc}`Judge documentation </user_guides/judge/judge>` |
 
 ## Quick Start
 
 ### Using the CLI
 
-The simplest way to evaluate a model is through the Oumi CLI:
+The simplest way to evaluate a model is by authoring a `YAML` configuration, and calling the Oumi CLI:
+
+````{dropdown} configs/recipes/phi3/evaluation/eval.yaml
+```{literalinclude} /../configs/recipes/phi3/evaluation/eval.yaml
+:language: yaml
+```
+````
 
 ```bash
-oumi evaluate -c configs/oumi/phi3.eval.lm_harness.yaml
+oumi evaluate -c configs/recipes/phi3/evaluation/eval.yaml
 ```
 
 To run evaluation with multiple GPUs:
 ```bash
-oumi distributed torchrun -m oumi evaluate -c configs/oumi/phi3.eval.lm_harness.yaml
+oumi distributed torchrun -m oumi evaluate -c configs/recipes/phi3/evaluation/eval.yaml
 ```
 
 ### Using the Python API
 
-For more programmatic control, you can use the Python API:
+For more programmatic control, you can use the Python API to load the {py:class}`~oumi.core.configs.EvaluationConfig` class:
 
 ```python
 from oumi import evaluate
 from oumi.core.configs import EvaluationConfig
 
 # Load configuration from YAML
-config = EvaluationConfig.from_yaml("configs/oumi/phi3.eval.lm_harness.yaml")
+config = EvaluationConfig.from_yaml("configs/recipes/phi3/evaluation/eval.yaml")
 
 # Run evaluation
 evaluate(config)
 ```
 
-## Configuration
+### Configuration File
 
-### Basic Configuration
-
-A minimal evaluation configuration file looks like this:
+A minimal evaluation configuration file looks as follows. The `model_name` can be a HuggingFace model name or a local path to a model. For more details on configuration settings, please visit the {doc}`evaluation configuration </user_guides/evaluate/evaluation_config>` page.
 
 ```yaml
 model:
@@ -66,138 +81,62 @@ model:
   trust_remote_code: True
 
 tasks:
-  - evaluation_platform: lm_harness
-    task_name: huggingface_leaderboard_v1
-    num_fewshot: 0
-    num_samples: 100
-
-generation:
-  batch_size: "auto"  # Let LM Harness optimize batch size
-  max_new_tokens: 512
-  temperature: 0.0
-
-enable_wandb: true
-output_dir: "evaluation_results"
-run_name: "phi3-evaluation"
-```
-
-### Advanced Configuration
-
-For more complex evaluations, you can specify multiple tasks:
-
-```yaml
-model:
-  model_name: "microsoft/Phi-3-mini-4k-instruct"
-  trust_remote_code: True
-  adapter_model: "path/to/adapter"  # Optional: For adapter-based models
-
-tasks:
-  # LM Harness Tasks
   - evaluation_platform: lm_harness
     task_name: mmlu
-    num_fewshot: 5
-    num_samples: 100
-  - evaluation_platform: lm_harness
-    task_name: arc_challenge
-    num_fewshot: 25
-  - evaluation_platform: lm_harness
-    task_name: hellaswag
-    num_fewshot: 10
 
-# AlpacaEval Task
-  - evaluation_platform: alpaca_eval
-    version: 2.0  # or 1.0
-    num_samples: 100
-
-generation:
-  batch_size: 16
-  max_new_tokens: 512
-  temperature: 0.0
-
-enable_wandb: true
-output_dir: "evaluation_results"
-run_name: "phi3-evaluation"
+output_dir: "my_evaluation_results"
 ```
 
-#### Configuration Options
-
-- `model`: Model-specific configuration
-  - `model_name`: HuggingFace model identifier or local path
-  - `trust_remote_code`: Whether to trust remote code (for custom models)
-  - `adapter_model`: Path to adapter weights (optional)
-  - `adapter_type`: Type of adapter ("lora" or "qlora")
-
-- `tasks`: List of evaluation tasks
-  - LM Harness Task Parameters:
-    - `evaluation_platform`: "lm_harness"
-    - `task_name`: Name of the LM Harness task
-    - `num_fewshot`: Number of few-shot examples (0 for zero-shot)
-    - `num_samples`: Number of samples to evaluate
-    - `eval_kwargs`: Additional task-specific parameters
-
-  - AlpacaEval Task Parameters:
-    - `evaluation_platform`: "alpaca_eval"
-    - `version`: AlpacaEval version (1.0 or 2.0)
-    - `num_samples`: Number of samples to evaluate
-    - `eval_kwargs`: Additional task-specific parameters
-
-- `generation`: Generation parameters
-  - `batch_size`: Batch size for inference ("auto" for automatic selection)
-  - `max_new_tokens`: Maximum number of tokens to generate
-  - `temperature`: Sampling temperature
-
-- `enable_wandb`: Enable Weights & Biases logging
-- `output_dir`: Directory for saving results
-- `run_name`: Name of the evaluation run
-
-## Supported Tasks
-
-### HuggingFace Leaderboard Tasks
-
-The `huggingface_leaderboard_v1` task suite includes:
-
-- ARC (Challenge & Easy)
-- HellaSwag
-- MMLU
-- TruthfulQA
-- Winogrande
-- GSM8K
-
-### Additional Tasks
-
-- BIG-bench
-- LAMBADA
-- PIQA
-- SQuAD
-- And many more...
-
-To see all available tasks:
-
-```bash
-lm-eval --tasks list
-```
 
 ## Results and Logging
 
+The evaluation outputs are saved under the specified `output_dir`, in a folder named `<platform>_<timestamp>`. This folder includes the evaluation results and all metadata required to reproduce the results.
+
 ### Evaluation Results
 
-Results are saved in the specified `output_dir` with the following files:
+| File | Description |
+|------|-------------|
+| `platform_results.json` | A dictionary that contains all evaluation metrics relevant to the benchmark, together with the execution duration, and date/time of execution.
 
-- `lm_harness_{timestamp}_results.json`: Detailed evaluation metrics
-- `lm_harness_{timestamp}_task_config.json`: Task configuration
-- `lm_harness_{timestamp}_evaluation_config.yaml`: Evaluation configuration
-- `lm_harness_{timestamp}_package_versions.json`: Package version information for reproducibility
-
-### Weights & Biases Integration
-
-When `enable_wandb` is true, results are automatically logged to W&B:
-
-```python
-# Environment variable for W&B project name
-os.environ["WANDB_PROJECT"] = "my-evaluation-project"
+**Schema**
+```yaml
+{
+  "results": {
+    <benchmark_name>: {
+      <metric_1>: <metric_1_value>,
+      <metric_2>: <metric_2_value>,
+      etc.
+    },
+  },
+  "duration_sec": <execution_duration>,
+  "start_time": <start_date_and_time>,
+}
 ```
 
-## API Reference
+### Reproducibility Metadata
 
-- See the {py:class}`~oumi.core.configs.EvaluationConfig` class for complete configuration options.
-- See {py:func}`~oumi.evaluate` function documentation for programmatic usage.
+To ensure that Oumi evaluations are fully reproducible, we log comprehensive metadata to capture all input configurations and environmental parameters, as shown below. These files provide a complete and traceable record of each evaluation, enabling users to reliably replicate results, ensuring consistency and transparency throughout the evaluation lifecycle.
+
+
+| File | Description | Reference |
+|------|-------------|-----------|
+| `task_params.json` | Evaluation task parameters | {py:class}`~oumi.core.configs.params.evaluation_params.EvaluationTaskParams` |
+| `model_params.json` | Model parameters | {py:class}`~oumi.core.configs.params.model_params.ModelParams` |
+| `generation_params.json` | Generation parameters | {py:class}`~oumi.core.configs.params.generation_params.GenerationParams` |
+| `inference_config.json` | Inference configuration (for generative benchmarks) | {py:class}`~oumi.core.configs.inference_config.InferenceConfig` |
+| `package_versions.json` | Package version information | N/A. Flat dictionary of all installed packages and their versions |
+
+### Weights & Biases
+
+To enhance experiment tracking and result visualization, Oumi integrates with [Weights and Biases](https://wandb.ai/site) (Wandb), a leading tool for managing machine learning workflows. Wandb enables users to monitor and log metrics, hyperparameters, and model outputs in real time, providing detailed insights into model performance throughout the evaluation process. When `enable_wandb` is set, Wandb results are automatically logged, empowering users to track experiments with greater transparency, and easily visualize trends across multiple runs. This integration streamlines the process of comparing models, identifying optimal configurations, and maintaining an organized, collaborative record of all evaluation activities.
+
+To ensure Wandb results are logged:
+
+- Enable Wandb in the {doc}`configuration file </user_guides/evaluate/evaluation_config>`
+```yaml
+enable_wandb: true
+```
+- Ensure the environmental variable `WANDB_PROJECT` points to your project name
+```python
+os.environ["WANDB_PROJECT"] = "my-evaluation-project"
+```

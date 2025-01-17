@@ -1,3 +1,6 @@
+# Class: oumi.core.configs.TrainingConfig
+# https://github.com/oumi-ai/oumi/blob/main/src/oumi/core/configs/training_config.py
+
 model:
   model_name: "llava-hf/llava-1.5-7b-hf"
   torch_dtype_str: "bfloat16"
@@ -12,7 +15,6 @@ data:
   train:
     collator_name: "vision_language_with_padding"
     experimental_use_torch_datapipes: False
-    target_col: "text" # TODO: useless col, but required by the trainer
     datasets:
       - dataset_name: "merve/vqav2-small"
         split: "validation"
@@ -27,6 +29,7 @@ data:
       #   split: "train"
       #   shuffle: True
       #   seed: 42
+      #   transform_num_workers: "auto"
       #   dataset_kwargs:
       #     processor_name: "llava-hf/llava-1.5-7b-hf"
       #     limit: 8192
