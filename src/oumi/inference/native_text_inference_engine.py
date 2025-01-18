@@ -18,7 +18,7 @@ from oumi.core.configs import GenerationParams, InferenceConfig, ModelParams
 from oumi.core.inference import BaseInferenceEngine
 from oumi.core.processors.base_processor import BaseProcessor
 from oumi.core.types.conversation import Conversation, Message, Role, Type
-from oumi.utils.image_utils import load_image_from_bytes
+from oumi.utils.image_utils import load_pil_image_from_bytes
 from oumi.utils.logging import logger
 
 
@@ -95,11 +95,23 @@ class NativeTextInferenceEngine(BaseInferenceEngine):
 
         if not generation_params.stop_token_ids and not generation_params.stop_strings:
             if self._tokenizer.eos_token_id:
-                logger.info(f"Setting EOS token id to `{self._tokenizer.eos_token_id}`")
-                generation_params.stop_token_ids = [self._tokenizer.eos_token_id]
+                eos_token_id = self._tokenizer.eos_token_id
+                logger.info(f"Setting EOS token id to `{eos_token_id}`")
+                if not isinstance(eos_token_id, int):
+                    raise RuntimeError(
+                        f"Tokenizer's `eos_token_id` is not an integer: "
+                        f"{eos_token_id}. Type: {type(eos_token_id)}"
+                    )
+                generation_params.stop_token_ids = [eos_token_id]
             elif self._tokenizer.eos_token:
-                logger.info(f"Setting EOS token to `{self._tokenizer.eos_token}`")
-                generation_params.stop_strings = [self._tokenizer.eos_token]
+                eos_token = self._tokenizer.eos_token
+                logger.info(f"Setting EOS token to `{eos_token}`")
+                if not isinstance(eos_token, str):
+                    raise RuntimeError(
+                        f"Tokenizer's `eos_token_id` is not a string: "
+                        f"{eos_token}. Type: {type(eos_token)}"
+                    )
+                generation_params.stop_strings = [eos_token]
             else:
                 logger.warning("No EOS token defined.")
 
@@ -130,8 +142,10 @@ class NativeTextInferenceEngine(BaseInferenceEngine):
 
         pil_images: list[PIL.Image.Image] = []
         for i, conversation in enumerate(conversations):
-            image_turns = [m for m in conversation.messages if m.is_image()]
-            num_images = len(image_turns)
+            image_items = [
+                item for m in conversation.messages for item in m.image_content_items
+            ]
+            num_images = len(image_items)
             if num_images >= 1:
                 if num_images > 1:
                     # FIXME OPE-355 Support multiple images
@@ -148,21 +162,21 @@ class NativeTextInferenceEngine(BaseInferenceEngine):
                             "All or none conversations in a batch must contain images."
                         )
                     )
-                image_turn = image_turns[-1]
-                if image_turn.type != Type.IMAGE_BINARY:
+                image_item = image_items[-1]
+                if image_item.type != Type.IMAGE_BINARY:
                     raise NotImplementedError(
                         conversation.append_id_to_string(
                             "Only binary image messages (`IMAGE_BINARY`) "
-                            f"are supported. Actual: {image_turn.type}"
+                            f"are supported. Actual: {image_item.type}"
                         )
                     )
-                elif image_turn.binary is None or len(image_turn.binary) == 0:
+                elif image_item.binary is None or len(image_item.binary) == 0:
                     raise ValueError(
                         conversation.append_id_to_string(
                             "No image bytes in a binary image message (`IMAGE_BINARY`)!"
                         )
                     )
-                image = load_image_from_bytes(image_turn.binary)
+                image = load_pil_image_from_bytes(image_item.binary)
                 pil_images.append(image)
 
         batch = self._processor(
@@ -189,6 +203,9 @@ class NativeTextInferenceEngine(BaseInferenceEngine):
         """
         generation_params = inference_config.generation
         model_device = next(self._model.parameters()).device
+        if generation_params.batch_size is None:
+            logger.warning("Batch size not specified. Defaulting to 1.")
+            generation_params.batch_size = 1
         batched_input: list[list[Conversation]] = self._make_batches(
             input, generation_params.batch_size
         )
@@ -251,7 +268,16 @@ class NativeTextInferenceEngine(BaseInferenceEngine):
                 new_batch_data = []
                 for response_index, response in enumerate(output_batch.data):
                     prompt = input_batches[batch_index]["input_ids"][response_index]  # type: ignore
-                    assert prompt.tolist() == response[: len(prompt)].tolist()
+                    # Sanity check
+                    prompt_as_list = prompt.tolist()
+                    response_prefix_as_list = response[: len(prompt)].tolist()
+                    if prompt_as_list != response_prefix_as_list:
+                        raise RuntimeError(
+                            "Inconsistent prompt prefix content! "
+                            f"\nRequest: {prompt_as_list} "
+                            f"\nResponse: {response_prefix_as_list}"
+                        )
+
                     new_batch_data.append(response[len(prompt) :])
                 output_batch.data = torch.stack(new_batch_data, dim=0)
 

@@ -13,6 +13,14 @@ oumi.utils.batching module
    :undoc-members:
    :show-inheritance:
 
+oumi.utils.conversation\_utils module
+-------------------------------------
+
+.. automodule:: oumi.utils.conversation_utils
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 oumi.utils.device\_utils module
 -------------------------------
 
@@ -69,6 +77,14 @@ oumi.utils.logging module
    :undoc-members:
    :show-inheritance:
 
+oumi.utils.packaging module
+---------------------------
+
+.. automodule:: oumi.utils.packaging
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 oumi.utils.peft\_utils module
 -----------------------------
 
@@ -81,6 +97,14 @@ oumi.utils.saver module
 -----------------------
 
 .. automodule:: oumi.utils.saver
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+oumi.utils.serialization\_utils module
+--------------------------------------
+
+.. automodule:: oumi.utils.serialization_utils
    :members:
    :undoc-members:
    :show-inheritance:

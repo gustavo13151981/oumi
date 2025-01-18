@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import copy
 import functools
+import json
 from typing import Any, NamedTuple
 
+import pydantic
 from typing_extensions import override
 
 from oumi.builders import (
@@ -19,7 +21,7 @@ from oumi.core.configs import (
 from oumi.core.processors.base_processor import BaseProcessor
 from oumi.core.types.conversation import Conversation, Message, Role, Type
 from oumi.inference.remote_inference_engine import RemoteInferenceEngine
-from oumi.utils.image_utils import base64encode_image_bytes
+from oumi.utils.conversation_utils import base64encode_content_item_image_bytes
 from oumi.utils.logging import logger
 
 
@@ -45,11 +47,11 @@ class _SamplingParams(NamedTuple):
     # logprob_start_len: int | None = None
     # top_logprobs_num: int | None = None
     # return_text_in_logprobs: bool | None = None
-    # json_schema: str | None = None
+    json_schema: str | None = None
 
     # For constrained generation:
     # dtype: str | None = None
-    # regex: str| None = None
+    regex: str | None = None
 
 
 class SGLangInferenceEngine(RemoteInferenceEngine):
@@ -85,6 +87,38 @@ class SGLangInferenceEngine(RemoteInferenceEngine):
     def _create_sampling_params(
         self, generation_params: GenerationParams
     ) -> _SamplingParams:
+        regex: str | None = None
+        json_schema: str | None = None
+        if generation_params.guided_decoding is not None:
+            if generation_params.guided_decoding.regex is not None:
+                regex = generation_params.guided_decoding.regex
+            else:
+                json_schema_value = None
+                if generation_params.guided_decoding.json is not None:
+                    json_schema_value = generation_params.guided_decoding.json
+                elif (
+                    generation_params.guided_decoding.choice is not None
+                    and len(generation_params.guided_decoding.choice) > 0
+                ):
+                    json_schema_value = {
+                        "enum": generation_params.guided_decoding.choice
+                    }
+
+                if isinstance(json_schema_value, str):
+                    json_schema = json_schema_value
+                elif isinstance(json_schema_value, dict):
+                    json_schema = json.dumps(json_schema_value, ensure_ascii=False)
+                elif isinstance(json_schema_value, pydantic.BaseModel) or (
+                    isinstance(json_schema_value, type)
+                    and issubclass(json_schema_value, pydantic.BaseModel)
+                ):
+                    json_schema = json.dumps(json_schema_value.model_json_schema())
+                else:
+                    raise ValueError(
+                        "Unsupported type of generation_params.guided_decoding.json: "
+                        f"{type(generation_params.guided_decoding.json)}"
+                    )
+
         return _SamplingParams(
             max_new_tokens=generation_params.max_new_tokens,
             temperature=generation_params.temperature,
@@ -94,6 +128,8 @@ class SGLangInferenceEngine(RemoteInferenceEngine):
             presence_penalty=generation_params.presence_penalty,
             stop=(generation_params.stop_strings or []),
             stop_token_ids=generation_params.stop_token_ids,
+            regex=regex,
+            json_schema=json_schema,
         )
 
     def _create_sampling_params_as_dict(
@@ -114,8 +150,10 @@ class SGLangInferenceEngine(RemoteInferenceEngine):
         )
 
     def _create_image_data_as_str(self, conversation: Conversation) -> str | None:
-        image_turns = [m for m in conversation.messages if m.is_image()]
-        num_images = len(image_turns)
+        image_items = [
+            item for m in conversation.messages for item in m.image_content_items
+        ]
+        num_images = len(image_items)
         if num_images <= 0:
             return None
         elif num_images > 1:
@@ -127,25 +165,25 @@ class SGLangInferenceEngine(RemoteInferenceEngine):
                 )
             )
 
-        image_turn = image_turns[-1]
-        if image_turn.type == Type.IMAGE_BINARY:
-            if not image_turn.binary:
+        image_item = image_items[-1]
+        if image_item.type == Type.IMAGE_BINARY:
+            if not image_item.binary:
                 raise ValueError(
                     conversation.append_id_to_string(
-                        f"No image bytes in message: {image_turn.type}"
+                        f"No image bytes in message: {image_item.type}"
                     )
                 )
-            return base64encode_image_bytes(image_turn)
+            return base64encode_content_item_image_bytes(image_item)
 
-        assert image_turn.type in (Type.IMAGE_PATH, Type.IMAGE_URL)
-        image_path_or_url = image_turn.content
+        assert image_item.type in (Type.IMAGE_PATH, Type.IMAGE_URL)
+        image_path_or_url = image_item.content
         if not image_path_or_url:
             friendly_type_name = (
-                "image path" if image_turn.type == Type.IMAGE_PATH else "image URL"
+                "image path" if image_item.type == Type.IMAGE_PATH else "image URL"
             )
             raise ValueError(
                 conversation.append_id_to_string(
-                    f"Empty {friendly_type_name} in message: {image_turn.type}"
+                    f"Empty {friendly_type_name} in message: {image_item.type}"
                 )
             )
         return image_path_or_url
@@ -188,7 +226,6 @@ class SGLangInferenceEngine(RemoteInferenceEngine):
         new_message = Message(
             content=response["text"],
             role=Role.ASSISTANT,
-            type=Type.TEXT,
         )
         return Conversation(
             messages=[*original_conversation.messages, new_message],
@@ -206,8 +243,14 @@ class SGLangInferenceEngine(RemoteInferenceEngine):
     @functools.cache
     def get_supported_params(self) -> set[str]:
         """Returns a set of supported generation parameters for this engine."""
-        result = set(_SamplingParams()._asdict().keys())
-        # Replace "stop" with "stop_strings"
-        result.remove("stop")
-        result.add("stop_strings")
-        return result
+        return {
+            "frequency_penalty",
+            "guided_decoding",
+            "max_new_tokens",
+            "min_p",
+            "presence_penalty",
+            "stop_strings",
+            "stop_token_ids",
+            "temperature",
+            "top_p",
+        }

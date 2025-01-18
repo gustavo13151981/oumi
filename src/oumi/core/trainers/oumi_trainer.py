@@ -24,8 +24,6 @@ from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm.auto import tqdm
 from transformers import TrainerCallback
 
-from oumi.builders.lr_schedules import build_lr_scheduler
-from oumi.builders.optimizers import build_optimizer
 from oumi.core.configs import MixedPrecisionDtype, TrainingConfig, TrainingParams
 from oumi.core.configs.params.fsdp_params import FSDPParams, StateDictType
 from oumi.core.distributed import (
@@ -71,10 +69,14 @@ class Trainer(BaseTrainer):
         eval_dataset: Optional[Dataset] = None,
         callbacks: Optional[list[TrainerCallback]] = None,
         data_collator: Optional[Callable] = None,
-        fsdp_params: Optional[FSDPParams] = None,
+        config: Optional[TrainingConfig] = None,
         **kwargs,
     ):
         """Initializes the Oumi trainer."""
+        # Importing these here to avoid circular dependencies
+        from oumi.builders.lr_schedules import build_lr_scheduler
+        from oumi.builders.optimizers import build_optimizer
+
         self.telemetry = TelemetryTracker()
         self.start_time = time.perf_counter()
         self.collator_fn = data_collator
@@ -88,7 +90,8 @@ class Trainer(BaseTrainer):
             float(args.max_grad_norm) if args.max_grad_norm is not None else None
         )
 
-        self.fsdp_params = fsdp_params or FSDPParams()
+        self.config = config or TrainingConfig()
+        self.fsdp_params = self.config.fsdp or FSDPParams()
         self.is_using_fsdp = self.fsdp_params.enable_fsdp
         # TODO OPE-333 Define a param to enable ring attention + check pre-conditions:
         # 1. Flash Attention (`is_ring_attention_available()`),
@@ -96,7 +99,7 @@ class Trainer(BaseTrainer):
         # 3. Supported model type.
         self.is_using_ring_attention = False
 
-        self.params.validate()
+        self.params.finalize_and_validate()
 
         self.state = TrainingState()
         self.device_type = "cuda" if torch.cuda.is_available() else "cpu"
@@ -148,7 +151,7 @@ class Trainer(BaseTrainer):
             with self._telemetry_block("wrap model for distributed"):
                 model = prepare_model_for_distributed(
                     model,
-                    fsdp_params=self.fsdp_params,
+                    self.config,
                     ddp_find_unused_parameters=self.params.ddp_find_unused_parameters,
                 )
                 # Apply ring attention monkey patch if enabled
@@ -450,6 +453,7 @@ class Trainer(BaseTrainer):
     #
     def save_model(self, config: TrainingConfig, final: bool = True) -> None:
         """Saves the model."""
+        self._cuda_sync_and_empty_cache()
         if is_world_process_zero():
             output_dir = Path(config.training.output_dir)
             output_dir.mkdir(exist_ok=True)
@@ -460,9 +464,11 @@ class Trainer(BaseTrainer):
             if self._processor is not None:
                 self._processor.save_config(output_dir)
                 logger.info(f"Processor config has been saved at {output_dir}.")
+        self._cuda_sync_and_empty_cache()
 
     def save_state(self):
         """Saves the training state."""
+        self._cuda_sync_and_empty_cache()
         checkpoint_dir = Path(self.params.output_dir)
 
         if is_local_process_zero():
@@ -513,6 +519,8 @@ class Trainer(BaseTrainer):
             torch.save(self.train_dataloader.state_dict(), dataloader_state_path)
             save_json(data=self.state.model_dump(), filename=trainer_state_path)
             logger.info(f"Training state saved to {checkpoint_dir}")
+
+        self._cuda_sync_and_empty_cache()
 
     def _load_from_checkpoint(self, checkpoint_dirname: str):
         """Loads the training state from a checkpoint."""

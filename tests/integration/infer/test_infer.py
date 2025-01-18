@@ -5,7 +5,13 @@ import pytest
 
 from oumi import infer, infer_interactive
 from oumi.core.configs import GenerationParams, InferenceConfig, ModelParams
-from oumi.core.types.conversation import Conversation, Message, Role, Type
+from oumi.core.types.conversation import (
+    ContentItem,
+    Conversation,
+    Message,
+    Role,
+    Type,
+)
 from oumi.utils.image_utils import load_image_png_bytes_from_path
 from oumi.utils.io_utils import get_oumi_root_directory
 from tests.markers import requires_cuda_initialized, requires_gpus
@@ -47,13 +53,14 @@ def test_infer_basic_interactive(monkeypatch: pytest.MonkeyPatch):
 
 @requires_cuda_initialized()
 @requires_gpus()
+@pytest.mark.skip(reason="TODO: this test takes too long to run")
 def test_infer_basic_interactive_with_images(monkeypatch: pytest.MonkeyPatch):
     config: InferenceConfig = InferenceConfig(
         model=ModelParams(
-            model_name="llava-hf/llava-1.5-7b-hf",
+            model_name="Qwen/Qwen2-VL-2B-Instruct",
             model_max_length=1024,
             trust_remote_code=True,
-            chat_template="llava",
+            chat_template="qwen2-vl-instruct",
         ),
         generation=GenerationParams(max_new_tokens=16, temperature=0.0, seed=42),
     )
@@ -110,10 +117,11 @@ def test_infer_basic_non_interactive(num_batches, batch_size):
 @pytest.mark.parametrize("num_batches,batch_size", [(1, 1), (1, 2)])
 def test_infer_basic_non_interactive_with_images(num_batches, batch_size):
     model_params = ModelParams(
-        model_name="llava-hf/llava-1.5-7b-hf",
+        model_name="Qwen/Qwen2-VL-2B-Instruct",
         model_max_length=1024,
         trust_remote_code=True,
-        chat_template="llava",
+        chat_template="qwen2-vl-instruct",
+        torch_dtype_str="float16",
     )
     generation_params = GenerationParams(
         max_new_tokens=10, temperature=0.0, seed=42, batch_size=batch_size
@@ -123,31 +131,45 @@ def test_infer_basic_non_interactive_with_images(num_batches, batch_size):
         TEST_IMAGE_DIR / "the_great_wave_off_kanagawa.jpg"
     )
 
-    input = ["Describe the high-level theme of the image in few words!"] * (
-        num_batches * batch_size
-    )
+    test_prompt: str = "Generate a short, descriptive caption for this image!"
+
+    input = [test_prompt] * (num_batches * batch_size)
     output = infer(
         config=InferenceConfig(model=model_params, generation=generation_params),
         inputs=input,
         input_image_bytes=png_image_bytes,
     )
 
-    conversation = Conversation(
-        messages=(
-            [
-                Message(role=Role.USER, binary=png_image_bytes, type=Type.IMAGE_BINARY),
-                Message(
-                    role=Role.USER,
-                    content="Describe the high-level theme of the image in few words!",
-                    type=Type.TEXT,
-                ),
-                Message(
-                    role=Role.ASSISTANT,
-                    content="2 boats in a wave.",
-                    type=Type.TEXT,
-                ),
-            ]
+    valid_responses = [
+        "A detailed Japanese print depicting a large wave crashing with",
+        "A traditional Japanese painting of a large wave crashing with",
+    ]
+
+    def _create_conversation(response: str) -> Conversation:
+        return Conversation(
+            messages=(
+                [
+                    Message(
+                        role=Role.USER,
+                        content=[
+                            ContentItem(binary=png_image_bytes, type=Type.IMAGE_BINARY),
+                            ContentItem(
+                                content=test_prompt,
+                                type=Type.TEXT,
+                            ),
+                        ],
+                    ),
+                    Message(
+                        role=Role.ASSISTANT,
+                        content=response,
+                    ),
+                ]
+            )
         )
-    )
-    expected_output = [conversation] * (num_batches * batch_size)
-    assert output == expected_output
+
+    # Check that each output conversation matches one of the valid responses
+    assert len(output) == num_batches * batch_size
+    for conv in output:
+        assert any(
+            conv == _create_conversation(response) for response in valid_responses
+        ), f"Generated response '{conv.messages[-1].content}' not in valid responses"

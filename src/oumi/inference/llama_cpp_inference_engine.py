@@ -28,6 +28,7 @@ class LlamaCppInferenceEngine(BaseInferenceEngine):
 
     Example:
         >>> from oumi.core.configs import ModelParams
+        >>> from oumi.inference import LlamaCppInferenceEngine
         >>> model_params = ModelParams(
         ...     model_name="path/to/model.gguf",
         ...     model_kwargs={
@@ -36,7 +37,7 @@ class LlamaCppInferenceEngine(BaseInferenceEngine):
         ...         "flash_attn": True
         ...     }
         ... )
-        >>> engine = LlamaCppInferenceEngine(model_params)
+        >>> engine = LlamaCppInferenceEngine(model_params) # doctest: +SKIP
         >>> # Use the engine for inference
     """
 
@@ -125,9 +126,10 @@ class LlamaCppInferenceEngine(BaseInferenceEngine):
         self, conversation: Conversation
     ) -> list[dict[str, str]]:
         """Converts a conversation to a list of llama.cpp input messages."""
+        # FIXME Handle multimodal e.g., raise an error.
         return [
             {
-                "content": message.content or "",
+                "content": message.compute_flattened_text_content(),
                 "role": "user" if message.role == Role.USER else "assistant",
             }
             for message in conversation.messages

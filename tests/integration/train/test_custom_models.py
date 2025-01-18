@@ -5,7 +5,11 @@ from transformers import Trainer
 
 from oumi import train
 from oumi.builders.data import build_dataset_mixture
-from oumi.builders.models import build_model, build_tokenizer
+from oumi.builders.models import (
+    build_model,
+    build_tokenizer,
+    is_image_text_llm,
+)
 from oumi.core.configs import (
     DataParams,
     DatasetParams,
@@ -15,6 +19,9 @@ from oumi.core.configs import (
     TrainerType,
     TrainingConfig,
     TrainingParams,
+)
+from oumi.core.configs.internal.supported_models import (
+    is_custom_model,
 )
 
 
@@ -26,11 +33,11 @@ def _get_default_config(output_temp_dir):
                     DatasetParams(
                         dataset_name="Salesforce/wikitext",
                         subset="wikitext-2-raw-v1",
+                        dataset_kwargs={"seq_length": 128},
                     )
                 ],
                 stream=True,
                 pack=True,
-                target_col="text",
             ),
         ),
         model=ModelParams(
@@ -60,7 +67,10 @@ def _get_default_config(output_temp_dir):
 
 def test_train_native_pt_model_from_api():
     with tempfile.TemporaryDirectory() as output_temp_dir:
-        config = _get_default_config(output_temp_dir)
+        config: TrainingConfig = _get_default_config(output_temp_dir)
+
+        assert is_custom_model(config.model.model_name), f"ModelParams: {config.model}"
+        assert not is_image_text_llm(config.model), f"ModelParams: {config.model}"
 
         tokenizer = build_tokenizer(config.model)
 
@@ -84,5 +94,8 @@ def test_train_native_pt_model_from_api():
 def test_train_native_pt_model_from_config():
     with tempfile.TemporaryDirectory() as output_temp_dir:
         config = _get_default_config(output_temp_dir)
+
+        assert is_custom_model(config.model.model_name), f"ModelParams: {config.model}"
+        assert not is_image_text_llm(config.model), f"ModelParams: {config.model}"
 
         train(config)

@@ -1,3 +1,4 @@
+import base64
 import copy
 import functools
 import random
@@ -9,7 +10,13 @@ import pytest
 from oumi.builders.models import build_chat_template, build_tokenizer
 from oumi.core.configs import ModelParams
 from oumi.core.tokenizers.base_tokenizer import BaseTokenizer
-from oumi.core.types.conversation import Conversation, Message, Role, Type
+from oumi.core.types.conversation import (
+    ContentItem,
+    Conversation,
+    Message,
+    Role,
+    Type,
+)
 from oumi.utils.io_utils import get_oumi_root_directory
 from oumi.utils.logging import logger
 
@@ -18,6 +25,7 @@ class ChatTemplateTestSpec(NamedTuple):
     chat_template_name: str
     model_name: str
     test_image: bool = False
+    trust_remote_code: bool = False
     image_placeholder: Optional[str] = None
 
 
@@ -29,6 +37,15 @@ class ConversationTuple(NamedTuple):
 _ALL_TEST_CHARS: Final[str] = string.ascii_uppercase + string.digits
 
 
+_SMALL_B64_IMAGE: Final[str] = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+)
+
+
+def _create_test_image_bytes() -> bytes:
+    return base64.b64decode(_SMALL_B64_IMAGE)
+
+
 def _generate_unique_text_piece(idx: int) -> str:
     return f"x{idx:03}" + "".join(random.choices(_ALL_TEST_CHARS, k=8))
 
@@ -37,16 +54,28 @@ def create_test_conversation(
     num_messages: int, include_image: bool
 ) -> ConversationTuple:
     messages = []
-    if include_image:
-        messages.append(Message(role=Role.USER, binary=b"", type=Type.IMAGE_BINARY))
     unique_text_pieces = []
-    for i in range(num_messages - 1 if include_image else num_messages):
-        s = _generate_unique_text_piece(i)
+    if include_image:
+        png_bytes = _create_test_image_bytes()
+        s = _generate_unique_text_piece(len(unique_text_pieces))
         messages.append(
             Message(
-                role=(Role.USER if (i % 2 == 0) else Role.ASSISTANT),
+                role=Role.USER,
+                content=[
+                    ContentItem(binary=png_bytes, type=Type.IMAGE_BINARY),
+                    ContentItem(content=s, type=Type.TEXT),
+                ],
+            )
+        )
+        unique_text_pieces.append(s)
+
+    for i in range(num_messages - 1 if include_image else num_messages):
+        idx = len(unique_text_pieces)
+        s = _generate_unique_text_piece(idx)
+        messages.append(
+            Message(
+                role=(Role.USER if (idx % 2 == 0) else Role.ASSISTANT),
                 content=s,
-                type=Type.TEXT,
             )
         )
         unique_text_pieces.append(s)
@@ -55,16 +84,15 @@ def create_test_conversation(
     )
 
 
-@functools.cache  # same as @cache added in Python 3.9
-def creat_test_tokenizer(model_name: str, chat_template_name: str) -> BaseTokenizer:
-    tokenizer_pad_token = None
-    if model_name == "openai-community/gpt2":
-        tokenizer_pad_token = "<|endoftext|>"
+@functools.cache
+def create_test_tokenizer(
+    model_name: str, chat_template_name: str, trust_remote_code: bool
+) -> BaseTokenizer:
     return build_tokenizer(
         model_params=ModelParams(
             model_name=model_name,
-            tokenizer_pad_token=tokenizer_pad_token,
             chat_template=chat_template_name,
+            trust_remote_code=trust_remote_code,
         ),
     )
 
@@ -88,6 +116,19 @@ _ALL_CHAT_TEMPLATE_TESTS: Final[list[ChatTemplateTestSpec]] = [
         model_name="llava-hf/llava-1.5-7b-hf",
         test_image=True,
         image_placeholder="<image>",
+    ),
+    ChatTemplateTestSpec(
+        chat_template_name="phi3-instruct",
+        model_name="microsoft/Phi-3-vision-128k-instruct",
+        test_image=True,
+        trust_remote_code=True,
+        image_placeholder="<|image_1|>",
+    ),
+    ChatTemplateTestSpec(
+        chat_template_name="qwen2-vl-instruct",
+        model_name="Qwen/Qwen2-VL-2B-Instruct",
+        test_image=True,
+        image_placeholder="<|vision_start|><|image_pad|><|vision_end|>",
     ),
     ChatTemplateTestSpec(
         chat_template_name="zephyr",
@@ -126,7 +167,11 @@ def test_chat_template(test_spec: ChatTemplateTestSpec):
     random.seed(hash(test_spec))
 
     chat_template: str = build_chat_template(test_spec.chat_template_name)
-    tokenizer = creat_test_tokenizer(test_spec.model_name, test_spec.chat_template_name)
+    tokenizer = create_test_tokenizer(
+        test_spec.model_name,
+        test_spec.chat_template_name,
+        trust_remote_code=test_spec.trust_remote_code,
+    )
     tokenizer.chat_template = chat_template
 
     for include_image in (False, True) if test_spec.test_image else (False,):
@@ -135,8 +180,9 @@ def test_chat_template(test_spec: ChatTemplateTestSpec):
         )
         for add_generation_prompt in (False, True):
             debug_tag = (
-                f"include_image: {include_image} "
-                f"add_generation_prompt: {add_generation_prompt}"
+                f"\ninclude_image: {include_image} "
+                f"\nadd_generation_prompt: {add_generation_prompt} "
+                f"\ntest_spec: {test_spec}"
             )
 
             prompt = tokenizer.apply_chat_template(
@@ -145,6 +191,9 @@ def test_chat_template(test_spec: ChatTemplateTestSpec):
                 add_generation_prompt=add_generation_prompt,
             )
 
+            logger.info(
+                f"prompt ({test_spec.chat_template_name}):\n=====\n{prompt}\n====="
+            )
             for text_piece in test_convo_tuple.unique_text_pieces:
                 assert (
                     text_piece in prompt

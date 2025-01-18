@@ -1,4 +1,3 @@
-import argparse
 import time
 from importlib.metadata import version
 from pathlib import Path
@@ -6,6 +5,7 @@ from pprint import pformat
 from typing import Callable, Optional, Union
 
 import torch
+import transformers
 from transformers.trainer_utils import get_last_checkpoint
 
 from oumi.builders import (
@@ -35,7 +35,6 @@ from oumi.core.distributed import (
     is_local_process_zero,
     is_world_process_zero,
     prepare_accelerate_fsdp_run,
-    set_random_seeds,
     verify_torch_distributed_initialized_if_needed,
 )
 from oumi.core.processors.base_processor import BaseProcessor
@@ -52,54 +51,12 @@ from oumi.utils.torch_utils import (
     coerce_model_to_dtype,
     device_cleanup,
     get_torch_dtype,
-    limit_per_process_memory,
     log_devices_info,
     log_model_summary,
     log_peak_gpu_memory,
     log_versioning_info,
 )
 from oumi.utils.version_utils import is_dev_build
-
-
-def parse_cli():
-    """Parses command line arguments and returns the configuration filename."""
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "-c", "--config", default=None, help="Path to the configuration file"
-    )
-    parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-    )
-    args, unknown = parser.parse_known_args()
-    return args.config, args.verbose, unknown
-
-
-def main() -> None:
-    """Main entry point for training Oumi.
-
-    Training arguments are fetched from the following sources, ordered by
-    decreasing priority:
-    1. [Optional] Arguments provided as CLI arguments, in dotfile format
-    2. [Optional] Arguments provided in a yaml config file
-    3. Default arguments values defined in the data class
-    """
-    # Load configuration
-    config_path, _verbose, arg_list = parse_cli()  # TODO: keep or not unused var
-
-    config: TrainingConfig = TrainingConfig.from_yaml_and_arg_list(
-        config_path, arg_list, logger=logger
-    )
-    config.validate()
-
-    limit_per_process_memory()
-    set_random_seeds(config.training.seed)
-
-    # Run training
-    train(config)
-
-    device_cleanup()
 
 
 def _find_checkpoint_to_resume_from(
@@ -202,7 +159,8 @@ def train(config: TrainingConfig, **kwargs) -> None:
 
     # Configure logging to file
     log_dir = Path(config.training.output_dir) / "logs"
-    configure_logger("oumi", level=config.training.log_level, log_dir=log_dir)
+    for logger_name in ("oumi", "oumi.telemetry"):
+        configure_logger(logger_name, level=config.training.log_level, log_dir=log_dir)
 
     telemetry_dir = config.training.telemetry_dir
 
@@ -271,7 +229,7 @@ def train(config: TrainingConfig, **kwargs) -> None:
 
     # Train model
     create_trainer_fn: Callable[..., BaseTrainer] = build_trainer(
-        config.training.trainer_type, processor
+        config.training.trainer_type, processor=processor
     )
 
     metrics_function = build_metrics_function(config.training)
@@ -289,7 +247,7 @@ def train(config: TrainingConfig, **kwargs) -> None:
         with torch.profiler.record_function("create_trainer"):
             kwargs = {}
             if config.training.trainer_type == TrainerType.OUMI:
-                kwargs["fsdp_params"] = config.fsdp
+                kwargs["config"] = config
 
             callbacks = build_training_callbacks(config, model, profiler)
 
@@ -339,7 +297,11 @@ def train(config: TrainingConfig, **kwargs) -> None:
 
         with torch.profiler.record_function("train"):
             logger.info(f"Training init time: {time.time() - _START_TIME:.3f}s")
-            logger.info("Starting training...")
+            logger.info(
+                f"Starting training... "
+                f"({config.training.trainer_type}, "
+                f"transformers: {transformers.__version__})"
+            )
             trainer.train(resume_from_checkpoint=checkpoint_location)
 
     logger.info("Training is Complete.")
@@ -352,6 +314,8 @@ def train(config: TrainingConfig, **kwargs) -> None:
         logger.info("Saving final state...")
         trainer.save_state()
 
+        barrier()
+
         logger.info("Saving final model...")
         trainer.save_model(config=config)
 
@@ -363,7 +327,3 @@ def train(config: TrainingConfig, **kwargs) -> None:
         "\n\n» We're always looking for feedback. "
         "What's one thing we can improve? https://oumi.ai/feedback"
     )
-
-
-if __name__ == "__main__":
-    main()

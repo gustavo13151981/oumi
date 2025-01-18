@@ -1,16 +1,19 @@
 from pathlib import Path
-from typing import Optional, Union, cast
+from typing import Literal, Optional, Union, cast
 
 import torch
 import torch.nn as nn
 import transformers
 from peft import LoraConfig, PeftModel, get_peft_model, prepare_model_for_kbit_training
 
-from oumi.core.configs import ModelParams, PeftParams
+from oumi.core.configs import LoraWeightInitialization, ModelParams, PeftParams
+from oumi.core.configs.internal.internal_model_config import InternalModelConfig
 from oumi.core.configs.internal.supported_models import (
+    find_internal_model_config,
     find_internal_model_config_using_model_name,
     find_model_hf_config,
-    get_all_vlms_map,
+    get_all_models_map,
+    is_custom_model,
 )
 from oumi.core.distributed import get_device_rank_info
 from oumi.core.registry import REGISTRY, RegistryType
@@ -42,7 +45,7 @@ def build_model(
     Returns:
         model: The built model.
     """
-    if REGISTRY.contains(name=model_params.model_name, type=RegistryType.MODEL):
+    if is_custom_model(model_params.model_name):
         model = build_oumi_model(
             model_params=model_params,
             peft_params=peft_params,
@@ -141,7 +144,13 @@ def build_huggingface_model(
     peft_params: Optional[PeftParams] = None,
     **kwargs,
 ) -> nn.Module:
-    """Downloads and builds the model from the HuggingFace Hub."""
+    """Builds a HuggingFace model.
+
+    If a local directory is specified, the model will be loaded from that checkpoint.
+    Otherwise, `model_params.model_name` is the name of a HuggingFaceHub model. The
+    model will be downloaded from the Hub to a local cache directory if it is not
+    already present, and will be loaded from there.
+    """
     device_map = model_params.device_map
     device_rank_info = get_device_rank_info()
 
@@ -220,11 +229,11 @@ def build_huggingface_model(
 
 
 def _get_transformers_model_class(config):
-    vlm_info = get_all_vlms_map().get(config.model_type, None)
+    llm_info = get_all_models_map().get(config.model_type, None)
 
-    if vlm_info is not None:
-        auto_model_class = vlm_info.model_class
-        if not vlm_info.tested:
+    if llm_info is not None:
+        auto_model_class = llm_info.model_class
+        if not llm_info.tested:
             logger.warning(
                 f"Model type {config.model_type} not tested. "
                 f"Using {auto_model_class} as the model class. "
@@ -352,9 +361,18 @@ def build_tokenizer(
         **model_params.tokenizer_kwargs,
     )
 
-    if model_params.tokenizer_pad_token:
+    tokenizer_pad_token = model_params.tokenizer_pad_token
+    if not tokenizer_pad_token:
+        # Try to find the default `tokenizer_pad_token` by model type.
+        internal_config: Optional[InternalModelConfig] = find_internal_model_config(
+            model_params
+        )
+        if internal_config is not None and internal_config.tokenizer_pad_token:
+            tokenizer_pad_token = internal_config.tokenizer_pad_token
+
+    if tokenizer_pad_token:
         tokenizer.add_special_tokens(
-            special_tokens_dict={"pad_token": model_params.tokenizer_pad_token}
+            special_tokens_dict={"pad_token": tokenizer_pad_token}
         )
 
     # Ensure that the tokenizer has a pad token set.
@@ -375,27 +393,63 @@ def build_tokenizer(
     if model_params.model_max_length:
         tokenizer.model_max_length = model_params.model_max_length
 
+    template_name: str = ""
     if model_params.chat_template:
         logger.info(
             f"Using the chat template '{model_params.chat_template}' "
             "specified in model config!"
         )
-        tokenizer.chat_template = build_chat_template(model_params.chat_template)
+        template_name = model_params.chat_template
+    else:
+        # Try to find the default chat template by model type.
+        internal_config: Optional[InternalModelConfig] = find_internal_model_config(
+            model_params
+        )
+        if internal_config is not None and internal_config.chat_template:
+            template_name = internal_config.chat_template
+            logger.info(
+                f"Using the chat template '{template_name}', which is the default "
+                f"for model '{model_params.model_name}'."
+            )
+        elif not tokenizer.chat_template:
+            template_name = "default"
+            logger.warning(
+                "No chat template found for tokenizer. "
+                "Please specify a chat template using the `chat_template` field. "
+                "This will be required in future versions of Oumi."
+            )
+            logger.warning(
+                "Setting tokenizer to use the 'default' chat template "
+                f"for model '{model_params.model_name}'."
+                "The 'default' template does not use any special tokens, "
+                "and is unlikely to yield good results."
+            )
 
-    if tokenizer.chat_template is None:
-        logger.warning(
-            "No chat template found for tokenizer. "
-            "Please specify a chat template using the `chat_template` field. "
-            "This will be required in future versions of Oumi."
-        )
-        logger.warning(
-            "Setting tokenizer to use the 'default' chat template. "
-            "The 'default' template does not use any special tokens, "
-            "and is unlikely to yield good results. "
-        )
-        tokenizer.chat_template = build_chat_template(template_name="default")
+    if template_name:
+        tokenizer.chat_template = build_chat_template(template_name=template_name)
 
     return tokenizer
+
+
+def _convert_init_lora_weights_to_lora_config(
+    param: LoraWeightInitialization,
+) -> Union[
+    bool,
+    Literal[
+        "gaussian",
+        "eva",
+        "pissa",
+        "pissa_niter_[number of iters]",
+        "loftq",
+        "olora",
+    ],
+]:
+    if param == LoraWeightInitialization.RANDOM:
+        return False
+    if param == LoraWeightInitialization.DEFAULT:
+        return True
+
+    return param.value
 
 
 def build_peft_model(
@@ -419,6 +473,9 @@ def build_peft_model(
         modules_to_save=peft_params.lora_modules_to_save,
         bias=peft_params.lora_bias,  # type: ignore
         task_type=peft_params.lora_task_type,
+        init_lora_weights=(
+            _convert_init_lora_weights_to_lora_config(peft_params.init_lora_weights)
+        ),
     )
 
     if peft_params.q_lora:

@@ -1,15 +1,12 @@
 import copy
-import io
 from abc import ABC, abstractmethod
-from typing import NamedTuple, Optional, Union
+from typing import NamedTuple, Optional
 
 import numpy as np
-import requests
 import torch
 from PIL import Image
 from typing_extensions import override
 
-from oumi.builders.processors import build_processor
 from oumi.core.configs.internal.internal_model_config import (
     InternalFeatureFirstDimAction,
     InternalModelConfig,
@@ -21,7 +18,11 @@ from oumi.core.configs.internal.supported_models import (
 from oumi.core.datasets import BaseSftDataset
 from oumi.core.processors.base_processor import BaseProcessor
 from oumi.core.tokenizers.base_tokenizer import BaseTokenizer
-from oumi.core.types.conversation import Conversation, Message, Role, Type
+from oumi.core.types.conversation import (
+    ContentItem,
+    Conversation,
+)
+from oumi.utils.conversation_utils import load_pil_image_from_content_item
 from oumi.utils.logging import logger
 from oumi.utils.torch_utils import get_first_dim_len
 
@@ -49,19 +50,26 @@ class VisionLanguageSftDataset(BaseSftDataset, ABC):
         multimodal architectures.
 
     Example:
+        >>> from oumi.builders import build_processor, build_tokenizer
+        >>> from oumi.core.configs import ModelParams
+        >>> from oumi.core.types.conversation import Conversation
+        >>> from oumi.core.datasets import VisionLanguageSftDataset
         >>> class MyVisionLanguageSftDataset(VisionLanguageSftDataset):
-        ...     def transform_conversation(self, example: dict) -> Conversation:
+        ...     def transform_conversation(self, example: dict):
         ...         # Implement the abstract method
         ...         # Convert the raw example into a Conversation object
         ...         pass
-        >>>
-        >>> dataset = MyVisionLanguageSftDataset(
+        >>> tokenizer = build_tokenizer(
+        ...     ModelParams(model_name="Qwen/Qwen2-1.5B-Instruct")
+        ... )
+        >>> dataset = MyVisionLanguageSftDataset( # doctest: +SKIP
+        ...     tokenizer=tokenizer,
         ...     processor_name="openai/clip-vit-base-patch32",
         ...     dataset_name="coco_captions",
         ...     split="train"
         ... )
-        >>> sample = next(iter(dataset))
-        >>> print(sample.keys())
+        >>> sample = next(iter(dataset))  # doctest: +SKIP
+        >>> print(sample.keys()) # doctest: +SKIP
     """
 
     def __init__(
@@ -76,6 +84,8 @@ class VisionLanguageSftDataset(BaseSftDataset, ABC):
     ) -> None:
         """Initializes a new instance of the VisionLanguageDataset class."""
         super().__init__(tokenizer=tokenizer, **kwargs)
+        # Importing these here to avoid circular dependencies
+        from oumi.builders.processors import build_processor
 
         if tokenizer is None:
             raise ValueError(
@@ -83,6 +93,11 @@ class VisionLanguageSftDataset(BaseSftDataset, ABC):
             )
         elif not hasattr(tokenizer, "pad_token_id") or tokenizer.pad_token_id is None:
             raise RuntimeError("Tokenizer doesn't define `pad_token_id`.")
+        elif not isinstance(tokenizer.pad_token_id, int):
+            raise RuntimeError(
+                "Tokenizer's `pad_token_id` is not an integer. "
+                f"Type: {type(tokenizer.pad_token_id)}"
+            )
 
         if processor is not None:
             if processor_name:
@@ -290,19 +305,19 @@ class VisionLanguageSftDataset(BaseSftDataset, ABC):
         Simple models only use the last image and text turn in the conversation. They
         don't use the chat template, so the prompt is just the last text turn.
         """
-        image_turns = [turn for turn in conversation.messages if turn.is_image()]
-        text_turns = [turn for turn in conversation.messages if turn.is_text()]
+        image_turns = [turn for turn in conversation.messages if turn.contains_images()]
+        text_turns = [turn for turn in conversation.messages if turn.contains_text()]
 
-        if not image_turns:
+        if len(image_turns) == 0:
             raise ValueError("Conversation must contain at least one image turn")
-        if not text_turns:
+        if len(text_turns) == 0:
             raise ValueError("Conversation must contain at least one text turn")
 
-        last_image_turn = image_turns[-1]
-        last_text_turn = text_turns[-1].content or ""
+        last_image_item: ContentItem = image_turns[-1].image_content_items[-1]
+        last_text_item: ContentItem = text_turns[-1].text_content_items[-1]
 
-        prompt = last_text_turn
-        image = self._load_image(last_image_turn)
+        prompt = last_text_item.content or ""
+        image = self._load_image(last_image_item)
 
         return image, prompt
 
@@ -321,58 +336,33 @@ class VisionLanguageSftDataset(BaseSftDataset, ABC):
         # including image placeholders for each image in the conversation
         texts = []
         for turn in conversation.messages:
-            if turn.is_text() or turn.is_image():
+            if turn.contains_text() or turn.contains_images():
                 texts.append(turn)
             else:
-                raise ValueError(f"Unsupported message type: {turn.type}")
+                raise ValueError(
+                    f"Unsupported message: {turn.id}. "
+                    "Contains no text and no images."
+                )
 
         text = self._processor.apply_chat_template(texts, add_generation_prompt=False)
 
         # Loads the images from the conversation
-        images = [turn for turn in conversation.messages if turn.is_image()]
-        images = [self._load_image(image) for image in images]
+        image_items = [
+            item for turn in conversation.messages for item in turn.image_content_items
+        ]
+        images = [self._load_image(item) for item in image_items]
 
         return images, text
 
-    def _load_image(self, image: Union[str, Message]) -> Image.Image:
+    def _load_image(self, image_item: ContentItem) -> Image.Image:
         """Loads an image from a message.
 
         Args:
-            image (Union[str, Message]): A string representing the image path or a
-                Message object.
+            image_item (`ContentItem`): A content item representing an image.
 
         Returns:
             Image.Image: A PIL image.
         """
         if self._image_processor is None:
             raise ValueError("Processor required for transform")
-
-        if isinstance(image, str):
-            image_type = Type.IMAGE_URL if image.startswith("http") else Type.IMAGE_PATH
-            image = Message(type=image_type, content=image, role=Role.USER)
-
-        if image.type == Type.IMAGE_PATH:
-            if image.content is None:
-                raise ValueError("Image path is None")
-            image_bin = Image.open(image.content).convert("RGB")
-
-        elif image.type == Type.IMAGE_URL:
-            if image.content is None:
-                raise ValueError("Image URL is None")
-            try:
-                response = requests.get(image.content, stream=True)
-                response.raise_for_status()
-            except requests.exceptions.RequestException as e:
-                logger.exception(f"Failed to download image: '{image.content}'")
-                raise e
-            image_bin = Image.open(io.BytesIO(response.content)).convert("RGB")
-
-        elif image.type == Type.IMAGE_BINARY:
-            if image.binary is None:
-                raise ValueError("Image binary is None")
-            image_bin = Image.open(io.BytesIO(image.binary)).convert("RGB")
-
-        else:
-            raise ValueError(f"Unsupported image type: {image.type}")
-
-        return image_bin
+        return load_pil_image_from_content_item(image_item)

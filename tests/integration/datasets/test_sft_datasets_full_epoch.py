@@ -40,9 +40,7 @@ def dataset_fixture(request):
     )
 
 
-@pytest.mark.skip(
-    reason="This test is very time consuming, and should be run manually."
-)
+@pytest.mark.e2e
 def test_dataset_conversation(dataset_fixture):
     dataset_name, dataset = dataset_fixture
     assert len(dataset) > 0, f"Dataset {dataset_name} is empty"
@@ -79,9 +77,9 @@ def test_dataset_conversation(dataset_fixture):
                     f"Content of message {msg_idx} in conversation "
                     f"at index {idx} is empty"
                 )
-            assert message.type == "text", (
+            assert isinstance(message.content, str), (
                 f"Type of message {msg_idx} in conversation at index {idx} "
-                f"is not 'text'. Type: {message.type}"
+                f"is not 'text'. Type: {type(message.content)}"
             )
 
         assert conversation.messages[0].role == "user", (

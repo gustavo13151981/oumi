@@ -5,7 +5,7 @@ Run the script using:
     --model-name<model_name> --dataset-name <dataset_name>
 
 For multi-GPU training, use torchrun:
-   torchrun --standalone --nproc_per_node=$(nvidia-smi --list-gpus | wc -l) \
+   torchrun --standalone --nproc-per-node=$(nvidia-smi --list-gpus | wc -l) \
         scripts/benchmarks/minimal_multimodal_training.py \
             --model-name <model_name> --dataset-name <dataset_name>
 
@@ -64,6 +64,7 @@ class ModelName(str, Enum):
     PALIGEMMA = "google/paligemma-3b-mix-224"
     PHI3_VISION = "microsoft/Phi-3-vision-128k-instruct"  # requires flash-attn
     MOLMOE_1B = "allenai/MolmoE-1B-0924"
+    SMOLVLM = "HuggingFaceTB/SmolVLM-Instruct"
 
 
 class ModelInfo(NamedTuple):
@@ -75,7 +76,7 @@ _DEFAULT_MLLM_CHAT_TEMPLATE = "llava"
 
 _MODELS_MAP: dict[ModelName, ModelInfo] = {
     ModelName.BLIP2: ModelInfo(
-        chat_template=_DEFAULT_MLLM_CHAT_TEMPLATE,
+        chat_template="default",
         freeze_layers=["vision_model"],
     ),
     ModelName.LLAVA: ModelInfo(
@@ -83,7 +84,7 @@ _MODELS_MAP: dict[ModelName, ModelInfo] = {
         freeze_layers=["vision_tower"],
     ),
     ModelName.QWEN2_VL: ModelInfo(
-        chat_template=_DEFAULT_MLLM_CHAT_TEMPLATE,
+        chat_template="qwen2-vl-instruct",
         freeze_layers=["visual"],
     ),
     ModelName.CHAMELEON: ModelInfo(
@@ -104,6 +105,10 @@ _MODELS_MAP: dict[ModelName, ModelInfo] = {
     ModelName.MOLMOE_1B: ModelInfo(
         chat_template=_DEFAULT_MLLM_CHAT_TEMPLATE,
         freeze_layers=["model.vision_backbone"],
+    ),
+    ModelName.SMOLVLM: ModelInfo(
+        chat_template=_DEFAULT_MLLM_CHAT_TEMPLATE,
+        freeze_layers=["vision_model"],
     ),
 }
 
@@ -133,13 +138,14 @@ class DatasetName(str, Enum):
     LLAVA_INSTRUCT_MIX_VSFT = "HuggingFaceH4/llava-instruct-mix-vsft"
     FLICKR = "nlphuji/flickr30k"
     COCO = "coco_captions"
+    MNIST_SFT = "mnist_sft"
 
 
 def _get_default_dataset_split(dataset_name: DatasetName) -> str:
-    if dataset_name == DatasetName.FLICKR:
+    if dataset_name in (DatasetName.FLICKR,):
         # The dataset only has "test" split.
         return "test"
-    elif dataset_name == DatasetName.MERVE_VQAV2_SMALL:
+    elif dataset_name in (DatasetName.MERVE_VQAV2_SMALL,):
         return "validation"
     return "train"
 

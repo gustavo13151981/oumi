@@ -13,7 +13,13 @@ from typing_extensions import override
 from oumi.builders import build_chat_template
 from oumi.core.datasets.vision_language_dataset import VisionLanguageSftDataset
 from oumi.core.tokenizers.base_tokenizer import BaseTokenizer
-from oumi.core.types.conversation import Conversation, Message, Role, Type
+from oumi.core.types.conversation import (
+    ContentItem,
+    Conversation,
+    Message,
+    Role,
+    Type,
+)
 
 
 class EqBytesIO:
@@ -98,12 +104,16 @@ def _get_test_png_image_bytes(image_size: Optional[tuple[int, int]] = None) -> b
 def sample_conversation_using_image_path():
     return Conversation(
         messages=[
-            Message(role=Role.USER, content="Describe this image:", type=Type.TEXT),
-            Message(role=Role.USER, content="path/to/image.jpg", type=Type.IMAGE_PATH),
+            Message(
+                role=Role.USER,
+                content=[
+                    ContentItem(content="Describe this image:", type=Type.TEXT),
+                    ContentItem(content="path/to/image.jpg", type=Type.IMAGE_PATH),
+                ],
+            ),
             Message(
                 role=Role.ASSISTANT,
                 content="A beautiful sunset over the ocean.",
-                type=Type.TEXT,
             ),
         ]
     )
@@ -113,16 +123,18 @@ def sample_conversation_using_image_path():
 def sample_conversation_using_image_binary():
     return Conversation(
         messages=[
-            Message(role=Role.USER, content="Describe this image:", type=Type.TEXT),
             Message(
                 role=Role.USER,
-                binary=_get_test_png_image_bytes(),
-                type=Type.IMAGE_BINARY,
+                content=[
+                    ContentItem(content="Describe this image:", type=Type.TEXT),
+                    ContentItem(
+                        binary=_get_test_png_image_bytes(), type=Type.IMAGE_BINARY
+                    ),
+                ],
             ),
             Message(
                 role=Role.ASSISTANT,
                 content="A beautiful sunset over the ocean.",
-                type=Type.TEXT,
             ),
         ]
     )
@@ -169,8 +181,7 @@ def test_dataset_image_binary_label_ignore_index(
             pass
 
     return TestDatasetImageBinary(
-        processor=mock_processor,
-        tokenizer=mock_image_tokenizer,
+        processor=mock_processor, tokenizer=mock_image_tokenizer
     )
 
 

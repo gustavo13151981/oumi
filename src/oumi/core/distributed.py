@@ -20,10 +20,13 @@ from torch.distributed.fsdp.wrap import (
 )
 from torch.nn.parallel import DistributedDataParallel
 
-from oumi.core.configs.params.fsdp_params import AutoWrapPolicy, FSDPParams
+from oumi.core.configs.params.fsdp_params import AutoWrapPolicy
 from oumi.core.configs.training_config import TrainingConfig
 from oumi.utils.logging import logger
-from oumi.utils.torch_naming_heuristics import get_module_class_from_name
+from oumi.utils.torch_naming_heuristics import (
+    resolve_transformer_layer_cls_string_as_module_set,
+    simplify_transformer_layer_cls_string,
+)
 
 
 #
@@ -34,6 +37,24 @@ class DeviceRankInfo(NamedTuple):
     rank: int
     local_world_size: int
     local_rank: int
+
+
+def _get_use_orig_params(config: TrainingConfig) -> bool:
+    """Returns whether to use the PyTorch Module's original parameters for FSDP.
+
+    If the user specified a value, return that. Else, infer its value based on other
+    config values (compilation, FSDP, PEFT).
+    """
+    if config.fsdp.use_orig_params is not None:
+        return config.fsdp.use_orig_params
+    # use_orig_params must be true for model compilation.
+    if not config.training.compile:
+        # use_orig_params should be false for FSDP PEFT training to realize GPU memory
+        # savings.
+        # https://huggingface.co/docs/peft/main/en/accelerate/fsdp#the-important-parts
+        if config.training.use_peft and config.fsdp.enable_fsdp:
+            return False
+    return True
 
 
 #
@@ -239,8 +260,15 @@ def init_distributed(
     timeout = (
         timedelta(minutes=timeout_minutes) if timeout_minutes is not None else None
     )
-    torch.distributed.init_process_group(backend=backend, timeout=timeout)
     torch.cuda.set_device(int(device_rank_info.local_rank))
+    torch.distributed.init_process_group(
+        backend=backend,
+        rank=device_rank_info.rank,
+        world_size=device_rank_info.world_size,
+        device_id=torch.device(int(device_rank_info.local_rank)),
+        timeout=timeout,
+    )
+    logger.info(f"Initialized distributed: {device_rank_info}")
 
 
 def cleanup_distributed():
@@ -253,15 +281,14 @@ def cleanup_distributed():
 #
 def prepare_model_for_distributed(
     model: torch.nn.Module,
-    fsdp_params: Optional[FSDPParams] = None,
+    config: TrainingConfig,
     ddp_find_unused_parameters: Optional[bool] = None,
 ) -> torch.nn.Module:
     """Wrap the model for distributed training (DDP or FSDP).
 
     Args:
         model: The model to be wrapped.
-        use_fsdp: Whether to use FSDP for distributed training.
-        fsdp_params: Configuration options for FSDP. Defaults to None.
+        config: The training config.
         ddp_find_unused_parameters: Whether to traverse the autograd graph from all
             tensors contained in the return value of the wrapped module's `forward`
             function. Parameters that don't receive gradients as part of this
@@ -276,6 +303,7 @@ def prepare_model_for_distributed(
     logger = logging.getLogger("oumi")
 
     device_rank_info = get_device_rank_info()
+    fsdp_params = config.fsdp
 
     if fsdp_params is None or not fsdp_params.enable_fsdp:
         logger.info("Using DistributedDataParallel (DDP) for distributed training.")
@@ -297,24 +325,28 @@ def prepare_model_for_distributed(
             guess_transformer_layer_cls,
         )
 
+        transformer_layer_classes = set()
         if fsdp_params.transformer_layer_cls is None:
             transformer_layer_cls = guess_transformer_layer_cls(model)
             logger.info(
                 "Automatically inferred transformer layer class to wrap: "
                 f"{transformer_layer_cls}"
             )
+            transformer_layer_classes.add(transformer_layer_cls)
         else:
             logger.info(
                 "Using transformer layer class to wrap: "
                 f"{fsdp_params.transformer_layer_cls}"
             )
-            transformer_layer_cls = get_module_class_from_name(
-                fsdp_params.transformer_layer_cls
+            transformer_layer_classes = (
+                resolve_transformer_layer_cls_string_as_module_set(
+                    fsdp_params.transformer_layer_cls
+                )
             )
 
         wrapping_policy = functools.partial(
             transformer_auto_wrap_policy,
-            transformer_layer_cls={transformer_layer_cls},
+            transformer_layer_cls=transformer_layer_classes,
             recurse=True,
             nonwrapped_numel=0,
         )
@@ -362,9 +394,9 @@ def prepare_model_for_distributed(
         device_id=torch.cuda.current_device(),
         sync_module_states=fsdp_params.sync_module_states,
         forward_prefetch=fsdp_params.forward_prefetch,
+        use_orig_params=_get_use_orig_params(config),
         # Leaving these to their default values for now
         # but we may want to make them configurable later
-        use_orig_params=True,  # This needs to be True for torch.compile to work
         limit_all_gathers=True,
         param_init_fn=None,
         ignored_modules=None,
@@ -393,12 +425,11 @@ def get_accelerate_env_vars(config: TrainingConfig) -> dict[str, str]:
     env_vars["ACCELERATE_DYNAMO_USE_FULLGRAPH"] = "False"
     env_vars["ACCELERATE_DYNAMO_USE_DYNAMIC"] = "False"
 
-    # We generally don't need these values to be configurable, and usually have
-    # them set to True.
-    env_vars["FSDP_USE_ORIG_PARAMS"] = "true"
+    # We haven't seen a need to make this configurable yet.
     # https://github.com/huggingface/transformers/blob/33868a057c02f0368ba63bd1edb746be38fe3d90/src/transformers/modeling_utils.py#L146
     env_vars["FSDP_CPU_RAM_EFFICIENT_LOADING"] = "true"
 
+    env_vars["FSDP_USE_ORIG_PARAMS"] = str(_get_use_orig_params(config)).lower()
     # These env vars are set based on FSDPParams.
     env_vars["ACCELERATE_USE_FSDP"] = str(config.fsdp.enable_fsdp).lower()
     env_vars["FSDP_SHARDING_STRATEGY"] = config.fsdp.sharding_strategy.value
@@ -411,7 +442,15 @@ def get_accelerate_env_vars(config: TrainingConfig) -> dict[str, str]:
     env_vars["FSDP_AUTO_WRAP_POLICY"] = config.fsdp.auto_wrap_policy.value
     env_vars["FSDP_MIN_NUM_PARAMS"] = str(config.fsdp.min_num_params)
     if config.fsdp.transformer_layer_cls:
-        env_vars["FSDP_TRANSFORMER_CLS_TO_WRAP"] = config.fsdp.transformer_layer_cls
+        simplified_value = simplify_transformer_layer_cls_string(
+            config.fsdp.transformer_layer_cls
+        )
+        if simplified_value != config.fsdp.transformer_layer_cls:
+            logger.info(
+                f"'FSDP_TRANSFORMER_CLS_TO_WRAP' is set to '{simplified_value}' "
+                f"based on '{config.fsdp.transformer_layer_cls}'."
+            )
+        env_vars["FSDP_TRANSFORMER_CLS_TO_WRAP"] = simplified_value
     env_vars["FSDP_SYNC_MODULE_STATES"] = str(config.fsdp.sync_module_states).lower()
 
     # This is set from TrainingParams.
