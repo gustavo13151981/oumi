@@ -21,7 +21,7 @@ Key features include:
 
 - **Multiple Training Methods**: {ref}`Supervised Fine-Tuning (SFT) <supervised-fine-tuning-sft>` to adapt models to your specific tasks, {ref}`Vision-Language SFT <vision-language-sft>` for multimodal models, {ref}`Pretraining <pretraining>` for training from scratch, and {ref}`Direct Preference Optimization (DPO) <direct-preference-optimization-dpo>` for preference-based fine-tuning
 - **Parameter-Efficient Fine-Tuning (PEFT) & Full Fine-Tuning (FFT)**: Support for multiple PEFT methods including LoRA for efficient adapter training, QLoRA for quantized fine-tuning with 4-bit precision, and full fine-tuning for maximum performance
-- **Flexible Environments**: Train on {doc}`local machines <environments/local>`, with {doc}`VSCode integration <environments/vscode>`, in {doc}`Jupyter notebooks <environments/notebooks>`, or in a {doc}`cloud environment <environments/cloud>`
+- **Flexible Environments**: Train on {doc}`local machines <environments/local>`, with {doc}`VSCode integration <environments/vscode>`, in {doc}`Jupyter notebooks <environments/notebooks>`, or in a {doc}`cloud environment </user_guides/launch/launch>`
 - **Production-Ready**: Ensure reproducibility through {doc}`YAML-based configurations <configuration>` and gain insights with comprehensive {doc}`monitoring & debugging tools <monitoring>`
 - **Scalable Training**: Scale from single-GPU training to multi-node distributed training using [Distributed Data Parallel (DDP)](https://pytorch.org/tutorials/beginner/ddp_series_theory.html) or [Fully Sharded Data Parallel (FSDP)](https://pytorch.org/tutorials/intermediate/FSDP_tutorial.html)
 
@@ -87,7 +87,7 @@ You can override any value either through the CLI or programmatically:
 :::{code-block} bash
 oumi train -c configs/recipes/smollm/sft/135m/quickstart_train.yaml \
   --training.learning_rate 1e-4 \
-  --training.num_train_epochs 5
+  --training.max_steps 30
 :::
 
 :::{code-block} python
@@ -99,7 +99,7 @@ config = TrainingConfig.from_yaml("configs/recipes/smollm/sft/135m/quickstart_tr
 
 # Override specific values
 config.training.learning_rate = 1e-4
-config.training.num_train_epochs = 5
+config.training.max_steps = 30
 
 # Start training
 train(config)
@@ -145,13 +145,13 @@ To train with multiple GPUs, we can extend that same configuration to use distri
 
 ```bash
 # Using DDP (DistributedDataParallel)
-oumi distributed torchrun -m \
-  oumi train \
+oumi distributed torchrun \
+  -m oumi train \
   -c configs/recipes/llama3_2/sft/3b_full/train.yaml
 
 # Using FSDP (Fully Sharded Data Parallel)
-oumi distributed torchrun -m \
-  oumi train \
+oumi distributed torchrun \
+  -m oumi train \
   -c configs/recipes/llama3_2/sft/3b_full/train.yaml \
   --fsdp.enable_fsdp true \
   --fsdp.sharding_strategy FULL_SHARD

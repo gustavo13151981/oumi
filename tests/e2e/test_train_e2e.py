@@ -299,6 +299,38 @@ def _do_test_train_impl(
             model_max_length=128,
         ),
         TrainTestConfig(
+            test_name="pretrain_fineweb",
+            config_path=(
+                CONFIG_FOLDER_ROOT
+                / "examples"
+                / "fineweb_ablation_pretraining"
+                / "ddp"
+                / "train.yaml"
+            ),
+            batch_size=2,
+            gradient_accumulation_steps=4,
+            dataloader_num_workers=1,
+            dataloader_prefetch_factor=2,
+            max_steps=5,
+            model_max_length=512,
+        ),
+    ],
+    ids=get_train_test_id_fn,
+)
+@pytest.mark.e2e
+def test_train_1gpu_24gb(
+    test_config: TrainTestConfig, tmp_path: Path, interactive_logs: bool = True
+):
+    _do_test_train_impl(
+        test_config=test_config, tmp_path=tmp_path, interactive_logs=interactive_logs
+    )
+
+
+@requires_gpus(count=1, min_gb=24.0)
+@pytest.mark.parametrize(
+    "test_config",
+    [
+        TrainTestConfig(
             test_name="train_qwen2_vl_2b_trl_sft",
             config_path=(
                 CONFIG_FOLDER_ROOT
@@ -350,7 +382,7 @@ def _do_test_train_impl(
     ids=get_train_test_id_fn,
 )
 @pytest.mark.e2e
-def test_train_1gpu_24gb(
+def test_train_multimodal_1gpu_24gb(
     test_config: TrainTestConfig, tmp_path: Path, interactive_logs: bool = True
 ):
     _do_test_train_impl(
