@@ -46,6 +46,8 @@ run: |
   nvidia-smi
 
   pip install -e ".[ci_gpu]"
+  pip install "lm_eval==0.4.5"
+  oumi env
 
   GPU_MULTIPLICITY_MARKER="single_gpu"
   if test ${OUMI_TOTAL_NUM_GPUS} -gt 1; then

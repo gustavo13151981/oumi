@@ -15,7 +15,7 @@ from oumi.core.configs import (
     LMHarnessTaskParams,
     ModelParams,
 )
-from oumi.core.distributed import is_world_process_zero
+from oumi.core.distributed import get_device_rank_info, is_world_process_zero
 from oumi.evaluation.save_utils import save_evaluation_output
 from oumi.utils.logging import logger
 
@@ -67,10 +67,16 @@ def evaluate(
     Returns:
         The evaluation results (dict of metric names and their corresponding values).
     """
+    device_rank_info = get_device_rank_info()
+    logger.info(f"{device_rank_info}")
+
     if torch.cuda.is_available():
         # CUDA device may be overwritten if `accelerate launch`,
         # or `parallelize=True` are used.
-        device = "cuda:0"
+        # device = "cuda:0"
+        local_rank = device_rank_info.local_rank
+        device = f"cuda:{local_rank}"
+        torch.cuda.set_device(torch.device("cuda", local_rank))
     elif torch.backends.mps.is_available():
         device = "mps"
     else:
@@ -108,6 +114,7 @@ def evaluate(
         apply_chat_template = False
 
     logger.info("Starting evaluation...")
+    # https://github.com/bigscience-workshop/lm-evaluation-harness/blob/1b43c62ba7bcb9693f4305360ff2fa6b9e11a1ea/README.md?plain=1#L113
     logger.info(f"\tLM Harness `model_params`:\n{pformat(lm_harness_model_params)}")
     logger.info(f"\tLM Harness `task_params`:\n{pformat(task_params)}")
     lm_eval_output = lm_eval.simple_evaluate(

@@ -69,6 +69,9 @@ def _test_eval_impl(
         cmd: list[str] = []
         if use_distributed:
             cmd.append("oumi distributed accelerate launch -m oumi evaluate")
+            # cmd.extend(
+            # ["--mixed_precision='no'", "--dynamo_backend='no'", "--num_processes=4"]
+            # )
         else:
             cmd.append("oumi evaluate")
 
