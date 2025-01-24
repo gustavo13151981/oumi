@@ -74,7 +74,7 @@ def _test_eval_impl(
 
         config_path = test_config.config_path
         # Overriding nested fields using OmegaConf's dot-list syntax is complicated,
-        # or impossible. Let's just create a modified config copy instead.
+        # or impossible (OPE-934). Let's just create a modified config copy instead.
         if test_config.num_samples is not None or test_config.num_fewshot is not None:
             for task in eval_config.tasks:
                 if test_config.num_samples is not None:
