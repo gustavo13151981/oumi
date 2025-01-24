@@ -76,7 +76,9 @@ def evaluate(
         # device = "cuda:0"
         local_rank = device_rank_info.local_rank
         device = f"cuda:{local_rank}"
-        torch.cuda.set_device(torch.device("cuda", local_rank))
+        device = "cuda"
+        # torch.cuda.set_device(torch.device("cuda", local_rank))
+        # logger.info(f"Set CUDA device: {torch.device('cuda', local_rank)}")
     elif torch.backends.mps.is_available():
         device = "mps"
     else:
@@ -99,6 +101,12 @@ def evaluate(
 
     lm_harness_model_params = model_params.to_lm_harness()
 
+    if torch.cuda.is_available() and (
+        "device_map" not in lm_harness_model_params
+        or lm_harness_model_params["device_map"] == "auto"
+    ):
+        lm_harness_model_params["device_map"] = "cuda"
+
     if is_image_text_llm(model_params):
         # Multimodal support is currently restricted to
         # the ['hf-multimodal', 'vllm-vlm'] model types.
@@ -107,6 +115,7 @@ def evaluate(
         lm_harness_model_params.update(
             _create_extra_lm_harness_model_params_for_vlm(model_params)
         )
+        lm_harness_model_params["device_map"] = "cuda"
     else:
         lm_harness_model = "hf"
         # False is the default value for `simple_evaluate()`
