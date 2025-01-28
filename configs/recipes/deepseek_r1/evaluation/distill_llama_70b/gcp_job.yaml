@@ -24,6 +24,8 @@ envs:
   MODEL_CHECKPOINT_DIR: deepseek-ai/DeepSeek-R1-Distill-Llama-70B
   WANDB_PROJECT: oumi-eval
   OUMI_RUN_NAME: deepseek-r1.llama70b.eval
+  # https://pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf
+  PYTORCH_CUDA_ALLOC_CONF: "garbage_collection_threshold:0.8,max_split_size_mb:128"
 
 setup: |
   set -e
@@ -44,8 +46,7 @@ run: |
   echo "Starting evaluation for ${MODEL_CHECKPOINT_DIR} ..."
   set -x
 
-  oumi distributed accelerate launch \
-    -m oumi evaluate \
+  oumi evaluate \
     -c configs/recipes/deepseek_r1/evaluation/distill_llama_70b/eval.yaml \
     --run_name "${OUMI_RUN_NAME}.${SKYPILOT_TASK_ID}" \
     --model.model_name "${MODEL_CHECKPOINT_DIR}"
