@@ -31,6 +31,19 @@ from oumi.utils.peft_utils import get_lora_rank
 
 try:
     import vllm  # pyright: ignore[reportMissingImports]
+    from openai.types.chat.chat_completion_content_part_image_param import (
+        ChatCompletionContentPartImageParam,
+        ImageURL,
+    )
+    from openai.types.chat.chat_completion_content_part_param import (
+        ChatCompletionContentPartParam,
+    )
+    from openai.types.chat.chat_completion_content_part_text_param import (
+        ChatCompletionContentPartTextParam,
+    )
+    from openai.types.chat.chat_completion_user_message_param import (
+        ChatCompletionUserMessageParam,
+    )
     from vllm.entrypoints.chat_utils import (  # pyright: ignore[reportMissingImports]
         ChatCompletionMessageParam,
     )
@@ -194,12 +207,49 @@ class VLLMInferenceEngine(BaseInferenceEngine):
             for key in ("role", "content"):
                 if key not in json_dict:
                     raise RuntimeError(f"The required field '{key}' is missing!")
-            if not isinstance(json_dict["content"], (str, list)):
+            content = json_dict["content"]
+            if not isinstance(content, (str, list)):
                 raise RuntimeError(
                     "The 'content' field must be `str` or `list`. "
-                    f"Actual: {type(json_dict['content'])}."
+                    f"Actual: {type(content)}."
                 )
-            result.append({"role": json_dict["role"], "content": json_dict["content"]})
+            role = json_dict["role"]
+            if not isinstance(role, str):
+                raise RuntimeError(
+                    f"The 'role' field must be `str`. Actual: {type(role)}."
+                )
+
+            if role == "user":
+                if isinstance(content, str):
+                    result.append(
+                        ChatCompletionUserMessageParam(role="user", content=content)
+                    )
+                else:
+                    assert isinstance(content, list)
+                    parts: list[ChatCompletionContentPartParam] = []
+
+                    for content_item in content:
+                        if content_item["type"] == "text":
+                            parts.append(
+                                ChatCompletionContentPartTextParam(
+                                    text=content_item["text"], type="text"
+                                )
+                            )
+                        elif content_item["type"] == "image_url":
+                            image_url = content_item["image_url"]
+                            parts.append(
+                                ChatCompletionContentPartImageParam(
+                                    image_url=ImageURL(url=image_url),
+                                    type="image_url",
+                                )
+                            )
+                        else:
+                            raise ValueError("Unknown content item")
+                    result.append(
+                        ChatCompletionUserMessageParam(role="user", content=parts)
+                    )
+            else:
+                result.append({"role": json_dict["role"], "content": content})
         return result
 
     def _infer(
@@ -247,7 +297,7 @@ class VLLMInferenceEngine(BaseInferenceEngine):
         )
 
         output_conversations = []
-        vllm_conversations = []
+        vllm_conversations: list[list[ChatCompletionMessageParam]] = []
         non_skipped_conversations = []
         for conversation in input:
             if not conversation.messages:
