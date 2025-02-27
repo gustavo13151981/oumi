@@ -36,15 +36,27 @@ setup: |
 
 run: |
   set -e  # Exit if any command failed.
+  export SKYPILOT_NUM_GPUS_PER_NODE=3
+  CUDA_VISIBLE_DEVICES="0,1,2"
   source ./configs/examples/misc/sky_init.sh
+
+  pip install -e ".[gpu]"
+  pip install "vllm>=0.7.0"
+  pip install "trl>=0.15.0,<0.16.0"
+
+  oumi env
+
+  export PER_DEVICE_BATCH_SIZE=2
+  export GLOBAL_BATCH_SIZE=$((${OUMI_TOTAL_NUM_GPUS} * ${PER_DEVICE_BATCH_SIZE}))
 
   set -x
   oumi distributed torchrun \
       -m oumi train \
       -c configs/examples/grpo_tldr/train.yaml \
       --training.run_name="${OUMI_RUN_NAME}.${SKYPILOT_TASK_ID}" \
-      --training.per_device_train_batch_size=3 \
-      --training.max_steps=20 \
+      --training.per_device_train_batch_size=2 \
+      --training.grpo.num_generations=6 \
+      --training.max_steps=5 \
       --training.save_steps=0 \
       --training.save_final_model=true
 
