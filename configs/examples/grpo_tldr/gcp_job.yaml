@@ -36,21 +36,32 @@ setup: |
 
 run: |
   set -e  # Exit if any command failed.
-  export SKYPILOT_NUM_GPUS_PER_NODE=3
-  CUDA_VISIBLE_DEVICES="0,1,2"
+  # export SKYPILOT_NUM_GPUS_PER_NODE=3
+  # CUDA_VISIBLE_DEVICES="0,1,2"
   source ./configs/examples/misc/sky_init.sh
 
   pip install -e ".[gpu]"
   pip install "vllm>=0.7.0"
-  pip install "trl>=0.15.0,<0.16.0"
+  # pip install "trl>=0.15.0,<0.16.0"
+  pip install -U "trl" "accelerate"
 
   oumi env
 
   export PER_DEVICE_BATCH_SIZE=2
   export GLOBAL_BATCH_SIZE=$((${OUMI_TOTAL_NUM_GPUS} * ${PER_DEVICE_BATCH_SIZE}))
 
+  VLLM_LOGGING_LEVEL=DEBUG
+
   set -x
-  oumi distributed torchrun \
+  # oumi distributed torchrun \
+  # oumi distributed accelerate launch \
+
+  accelerate launch --multi_gpu \
+      --num_machines=1    \
+      --machine_rank=0    \
+      --num_processes=3   \
+      --main_process_ip="${OUMI_MASTER_ADDR}" \
+      --main_process_port=8007 \
       -m oumi train \
       -c configs/examples/grpo_tldr/train.yaml \
       --training.run_name="${OUMI_RUN_NAME}.${SKYPILOT_TASK_ID}" \

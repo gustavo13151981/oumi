@@ -214,9 +214,11 @@ def accelerate(
             ["accelerate"]
             + ([accelerate_subcommand] if accelerate_subcommand is not None else [])
             + [
+                "--multi_gpu",
                 f"--num_machines={run_info.num_nodes}",
                 f"--machine_rank={run_info.node_rank}",
-                f"--num_processes={run_info.total_gpus}",
+                # f"--num_processes={run_info.total_gpus}",
+                "--num_processes=3",
                 f"--main_process_ip={run_info.master_address}",
                 f"--main_process_port={run_info.master_port}",
             ]

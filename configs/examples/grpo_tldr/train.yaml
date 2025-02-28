@@ -40,11 +40,14 @@ training:
   empty_device_cache_steps: 1
   compile: True # Set to False if `grpo.use_vllm` is enabled: https://github.com/vllm-project/vllm/issues/12783
 
+  log_level: "debug"
+
   grpo:
     num_generations: 3 # global batch size must be evenly divisible by `num_generations`
 
-    use_vllm: False
-    vllm_device: "cuda:3"
+    use_vllm: True
+    # vllm_device: "auto" # "cuda:3"
+    vllm_device: "cuda:2"
     vllm_gpu_memory_utilization: 0.3
 
   dataloader_num_workers: "auto"
