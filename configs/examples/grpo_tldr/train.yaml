@@ -47,8 +47,8 @@ training:
 
     use_vllm: True
     # vllm_device: "auto" # "cuda:3"
-    vllm_device: "cuda:2"
-    vllm_gpu_memory_utilization: 0.3
+    vllm_device: "cuda:3"
+    vllm_gpu_memory_utilization: 0.7
 
   dataloader_num_workers: "auto"
   dataloader_prefetch_factor: 32
