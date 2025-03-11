@@ -110,7 +110,7 @@ class TheCauldronDataset(VisionLanguageSftDataset):
                     Message(
                         role=Role.USER,
                         content=(
-                            image_content_items
+                            image_content_items[:2]
                             + [
                                 ContentItem(type=Type.TEXT, content=text_entry["user"]),
                             ]

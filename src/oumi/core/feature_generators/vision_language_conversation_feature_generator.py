@@ -232,34 +232,41 @@ class VisionLanguageConversationFeatureGenerator(BaseConversationFeatureGenerato
         valid_options: FeatureGeneratorOptions = options or FeatureGeneratorOptions()
 
         if self._processor.chat_template is None:
-            all_images = []
-            all_prompts = []
+            all_images: list[list[Image.Image]] = []
+            all_prompts: list[str] = []
             for conversation in conversations:
                 image, prompt = self._prepare_simple_model(conversation)
-                all_images.append(image)
+                all_images.append([image])
                 all_prompts.append(prompt)
 
             inputs = self._processor(
-                images=all_images,
+                images=[image for item in all_images for image in item],
                 text=all_prompts,
                 return_tensors=self._return_tensors,
                 padding=True,
             )
         else:
-            all_images = []
-            all_prompts = []
+            all_images: list[list[Image.Image]] = []
+            all_prompts: list[str] = []
             for conversation in conversations:
                 images, prompt = self._prepare_instruct_model(conversation)
                 all_images.append(images)
                 all_prompts.append(prompt)
 
             inputs = self._processor(
-                images=all_images,
+                images=[image for item in all_images for image in item],
                 text=all_prompts,
                 return_tensors=self._return_tensors,
                 padding=True,
             )
+            logger.info(
+                f"Conversations: {len(conversations)} "
+                f"Images: {len(all_images)}: {[len(item) for item in all_images]} "
+                f"{[image.size for item in all_images for image in item]} "
+                f"Prompts: {len(all_prompts)}: {[len(item) for item in all_prompts]}  "
+            )
 
+        logger.info("\n".join([f"{k}: {v.shape}" for k, v in inputs.items()]))
         # Clone `input_ids` as `labels`.
         input_ids = inputs["input_ids"]
         if isinstance(input_ids, torch.Tensor):

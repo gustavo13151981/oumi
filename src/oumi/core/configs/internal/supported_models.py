@@ -171,7 +171,8 @@ def _create_qwen2_5_vl_vlm_config() -> InternalModelConfig:
         # https://github.com/QwenLM/Qwen2.5-VL/blob/main/qwen-vl-utils/src/qwen_vl_utils/vision_process.py # noqa: E501
         {
             "min_pixels": 4 * 28 * 28,
-            "max_pixels": 16384 * 28 * 28,
+            # "max_pixels": 16384 * 28 * 28,
+            "max_pixels": 1280 * 28 * 28,
         }
     )
     return config
