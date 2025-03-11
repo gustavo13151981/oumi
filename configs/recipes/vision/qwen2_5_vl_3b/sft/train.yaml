@@ -34,7 +34,7 @@ data:
       - dataset_name: "HuggingFaceM4/Docmatix"
         subset: "zero-shot-exp"
         # split: "train[1:4]"
-        split: "test"
+        split: "train"
         shuffle: True
         seed: 42
         trust_remote_code: True
